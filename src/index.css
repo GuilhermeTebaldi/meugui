@@ -1,45 +1,27 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", sans-serif;
-  --font-display: "Space Grotesk", sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
+  --font-sans: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   
-  --color-bg: #FFFFFF;
-  --color-ink: #0A0A0A;
-  --color-accent: #00D1FF; /* Electric Blue */
-  --color-border: rgba(0, 0, 0, 0.06);
-  --color-highlight: #7000FF; /* Proton Purple */
-  --color-glass-fill: rgba(255, 255, 255, 0.7);
-  --color-glass-border: rgba(0, 0, 0, 0.05);
+  --color-bg: #F8F9FA;
+  --color-ink: #212529;
+  --color-accent: #3A4750;
+  --color-border: #DEE2E6;
+  --color-highlight: #007BFF;
 }
 
 @layer base {
   body {
-    @apply bg-bg text-ink font-sans selection:bg-accent/20 overflow-hidden;
-    background: 
-      radial-gradient(circle at 0% 0%, rgba(0, 209, 255, 0.03) 0%, transparent 40%),
-      radial-gradient(circle at 100% 100%, rgba(112, 0, 255, 0.03) 0%, transparent 40%),
-      var(--color-bg);
+    @apply bg-bg text-ink font-sans;
   }
 }
 
 @layer utilities {
-  .glass {
-    @apply bg-glass-fill backdrop-blur-xl border border-glass-border;
-  }
-  .glass-card {
-    @apply bg-glass-fill backdrop-blur-xl border border-glass-border shadow-[0_8px_30px_rgb(0,0,0,0.04)];
-  }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
-  }
-  .glow-text {
-    text-shadow: 0 0 15px rgba(0, 209, 255, 0.2);
   }
 }

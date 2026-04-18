@@ -23,13 +23,6 @@ export const storage = {
   saveCategories: (categories: string[]) => {
     localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
   },
-  getPreferences: () => {
-    const data = localStorage.getItem('agenda_mental_prefs');
-    return data ? JSON.parse(data) : { lastCategory: '', lastRecurrence: 'none' };
-  },
-  savePreferences: (prefs: { lastCategory: string; lastRecurrence: string }) => {
-    localStorage.setItem('agenda_mental_prefs', JSON.stringify(prefs));
-  },
   addItem: (item: AgendaItem) => {
     const items = storage.getItems();
     items.push(item);
