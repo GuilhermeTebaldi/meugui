@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   Plus, 
   Calendar as CalendarIcon, 
@@ -273,14 +273,23 @@ export default function App() {
     setEditingItem(null);
   };
 
-  const checkItemVisibility = (item: AgendaItem, targetDate: Date) => {
-    if (!item.scheduledDate) return false;
-    
+  const parsedScheduledDates = useMemo(() => {
+    const parsed = new Map<string, Date>();
+    items.forEach(item => {
+      if (item.scheduledDate) {
+        parsed.set(item.id, parseISO(item.scheduledDate));
+      }
+    });
+    return parsed;
+  }, [items]);
+
+  const checkItemVisibility = useCallback((item: AgendaItem, targetDate: Date) => {
+    const itemDate = parsedScheduledDates.get(item.id);
+    if (!itemDate) return false;
+
     const dateKey = format(targetDate, 'yyyy-MM-dd');
     if (item.exceptionDates?.includes(dateKey)) return false;
 
-    const itemDate = parseISO(item.scheduledDate);
-    
     // If it's none, just check if it's the exact same day
     if (item.recurrence === 'none') {
       return isSameDay(itemDate, targetDate);
@@ -312,7 +321,7 @@ export default function App() {
     }
 
     return false;
-  };
+  }, [parsedScheduledDates]);
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -320,11 +329,7 @@ export default function App() {
       const matchesCategory = filterCategory === 'Tudo' || item.category === filterCategory;
       return matchesDate && matchesCategory;
     }).sort((a, b) => b.timestamp - a.timestamp);
-  }, [items, selectedDate, filterCategory]);
-
-  const hasItemsOnDay = (date: Date) => {
-    return items.some(item => checkItemVisibility(item, date));
-  };
+  }, [items, selectedDate, filterCategory, checkItemVisibility]);
 
   // Calendar rendering helpers
   const monthDays = useMemo(() => {
@@ -332,6 +337,19 @@ export default function App() {
     const end = endOfWeek(endOfMonth(currentMonth), { weekStartsOn: 0 });
     return eachDayOfInterval({ start, end });
   }, [currentMonth]);
+
+  const monthDaysWithItems = useMemo(() => {
+    const withItems = new Set<string>();
+
+    monthDays.forEach(date => {
+      const hasAnyVisibleItem = items.some(item => checkItemVisibility(item, date));
+      if (hasAnyVisibleItem) {
+        withItems.add(format(date, 'yyyy-MM-dd'));
+      }
+    });
+
+    return withItems;
+  }, [monthDays, items, checkItemVisibility]);
 
   return (
     <div className="h-screen flex flex-col bg-bg text-ink selection:bg-accent/20 overflow-hidden font-sans">
@@ -577,7 +595,7 @@ export default function App() {
                       ))}
                       {monthDays.map((date) => {
                         const isSelected = isSameDay(date, selectedDate);
-                        const hasItems = hasItemsOnDay(date);
+                        const hasItems = monthDaysWithItems.has(format(date, 'yyyy-MM-dd'));
                         const isCurrentMonth = isSameDay(startOfMonth(date), startOfMonth(currentMonth));
                         const isTdy = isToday(date);
                         
