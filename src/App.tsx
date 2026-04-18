@@ -23,7 +23,8 @@ import {
   Zap,
   Camera,
   X,
-  Image as ImageIcon
+  Image as ImageIcon,
+  AlertTriangle
 } from 'lucide-react';
 import { 
   format, 
@@ -80,6 +81,7 @@ export default function App() {
   const [activeTab, setActiveTab ] = useState<'list' | 'calendar'>('list');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+  const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
 
   // Edit/Delete Modals Mode
   const [editingItem, setEditingItem] = useState<AgendaItem | null>(null);
@@ -98,28 +100,29 @@ export default function App() {
   useEffect(() => {
     const savedItems = storage.getItems();
     const savedCats = storage.getCategories();
+    const prefs = storage.getPreferences();
+    
     setItems(savedItems);
     setCategories(savedCats);
     if (savedCats.length > 0) {
-      setSelectedCategory(savedCats[0]);
+      setSelectedCategory(prefs.lastCategory || savedCats[0]);
     }
+    setSelectedRecurrence(prefs.lastRecurrence || 'none');
   }, []);
 
   const handleAddCategory = () => {
     if (!newCategoryName.trim()) return;
     if (categories.includes(newCategoryName.trim())) {
       setNewCategoryName('');
-      setIsAddingCategory(false);
       return;
     }
     const updated = [...categories, newCategoryName.trim()];
     setCategories(updated);
     storage.saveCategories(updated);
-    if (categories.length === 0) {
+    if (!selectedCategory) {
       setSelectedCategory(newCategoryName.trim());
     }
     setNewCategoryName('');
-    setIsAddingCategory(false);
   };
 
   const compressImage = (file: File): Promise<string> => {
@@ -201,6 +204,7 @@ export default function App() {
     const newItems = [...items, newItem];
     setItems(newItems);
     storage.saveItems(newItems);
+    storage.savePreferences({ lastCategory: selectedCategory, lastRecurrence: selectedRecurrence });
     setInputText('');
     setPendingImage(null);
     // Reinicia o tempo para o momento atual para o próximo item
@@ -330,600 +334,549 @@ export default function App() {
   }, [currentMonth]);
 
   return (
-    <div className="h-screen flex flex-col bg-bg text-ink selection:bg-highlight/20 overflow-hidden">
-      {/* Header */}
-      <header className="bg-white border-b-2 border-ink p-4 md:p-8 flex flex-col gap-4 z-30 shadow-sm flex-shrink-0">
-        <div className="max-w-6xl mx-auto w-full">
-          <AnimatePresence initial={false}>
-            {!isHeaderCollapsed && (
-              <motion.div 
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden space-y-4 md:space-y-6 mb-4"
-              >
-                <div className="flex flex-col md:flex-row gap-3">
-                  <div className="flex-grow relative">
-                    <input
-                      type="text"
-                      placeholder="Ex: Preciso ir ao médico às 14h"
-                      className="w-full h-[50px] md:h-[60px] pl-4 md:pl-6 pr-12 text-lg md:text-xl bg-white border-2 border-ink rounded-sm outline-none placeholder:text-neutral-400"
-                      value={inputText}
-                      onChange={(e) => setInputText(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleAddItem(false)}
-                    />
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                      {pendingImage && (
-                        <div className="relative">
-                          <img src={pendingImage} className="w-8 h-8 rounded-sm object-cover border border-ink" />
-                          <button 
-                            onClick={() => setPendingImage(null)}
-                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5"
-                          >
-                            <X size={8} />
-                          </button>
-                        </div>
-                      )}
-                      <button 
-                        onClick={() => fileInputRef.current?.click()}
-                        className={`p-2 rounded-sm transition-colors ${pendingImage ? 'text-highlight' : 'text-neutral-400 hover:text-ink'}`}
-                      >
-                        <Camera size={20} />
-                      </button>
-                      <input 
-                        type="file" 
-                        ref={fileInputRef} 
-                        onChange={handleImageChange} 
-                        accept="image/*" 
-                        capture="environment"
-                        className="hidden" 
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleAddItem(false)}
-                      className="flex-1 md:flex-none h-[50px] md:h-[60px] px-4 md:px-6 bg-ink text-white font-bold uppercase tracking-wider text-[11px] md:text-[13px] rounded-sm transition-all active:scale-95 border-2 border-ink"
-                    >
-                      Agora
-                    </button>
-                    <button
-                      onClick={() => handleAddItem(true)}
-                      className="flex-1 md:flex-none h-[50px] md:h-[60px] px-4 md:px-6 bg-white text-ink font-bold uppercase tracking-wider text-[11px] md:text-[13px] rounded-sm transition-all active:scale-95 border-2 border-ink hover:bg-neutral-50"
-                    >
-                      Agendar
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+    <div className="h-screen flex flex-col bg-bg text-ink selection:bg-accent/20 overflow-hidden font-sans">
+      {/* Dynamic Background Elements */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-accent/5 blur-[120px] rounded-full animate-pulse" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-highlight/5 blur-[120px] rounded-full animate-pulse [animation-delay:2s]" />
+      </div>
 
-          <div className="flex flex-col md:flex-row md:items-center gap-4 py-2 border-t border-ink/5 pt-4">
-            <div className="flex items-center gap-4 overflow-x-auto no-scrollbar flex-grow pr-4">
-              <button 
-                onClick={() => setIsHeaderCollapsed(!isHeaderCollapsed)}
-                className={`flex-shrink-0 p-2 border-2 border-ink rounded-sm transition-all ${isHeaderCollapsed ? 'bg-highlight text-white' : 'bg-white text-ink'}`}
-                title={isHeaderCollapsed ? "Mostrar formulário" : "Ver apenas compromissos"}
-              >
-                <Plus size={16} className={`transition-transform duration-300 ${isHeaderCollapsed ? 'rotate-0' : 'rotate-45'}`} />
-              </button>
-
-              <button
-                onClick={() => setFilterCategory('Tudo')}
-                className={`text-[12px] font-bold uppercase tracking-widest whitespace-nowrap transition-all border-b-2 pb-1 ${
-                  filterCategory === 'Tudo' 
-                  ? 'text-ink border-highlight' 
-                  : 'text-neutral-400 border-transparent hover:text-neutral-600'
-                }`}
-              >
-                Tudo
-              </button>
-              {categories.map((cat) => (
-                <div key={cat} className="group flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      setFilterCategory(cat);
-                      setSelectedCategory(cat);
-                    }}
-                    className={`text-[12px] font-bold uppercase tracking-widest whitespace-nowrap transition-all border-b-2 pb-1 ${
-                      filterCategory === cat 
-                      ? 'text-ink border-highlight' 
-                      : 'text-neutral-400 border-transparent hover:text-neutral-600'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                  <button 
-                    onClick={() => setCategoryToDelete(cat)}
-                    className="opacity-0 group-hover:opacity-100 text-[8px] text-red-500 hover:text-red-700 transition-all font-black pb-1"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-              
-              {isAddingCategory ? (
-                <div className="flex items-center gap-2">
-                  <input 
-                    autoFocus
-                    type="text"
-                    value={newCategoryName}
-                    onChange={(e) => setNewCategoryName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
-                    onBlur={() => !newCategoryName && setIsAddingCategory(false)}
-                    placeholder="Nova..."
-                    className="bg-neutral-50 border-b-2 border-ink text-[11px] font-bold uppercase outline-none px-1 w-20"
-                  />
-                  <button onClick={handleAddCategory} className="text-highlight font-black text-sm">✓</button>
-                </div>
-              ) : (
-                <button 
-                  onClick={() => setIsAddingCategory(true)}
-                  className="text-neutral-300 hover:text-highlight transition-all"
-                >
-                  <Plus size={16} strokeWidth={3} />
-                </button>
-              )}
-            </div>
-
-            <AnimatePresence>
-              {!isHeaderCollapsed && (
-                <motion.div 
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  className="flex items-center gap-3 md:gap-4 overflow-x-auto no-scrollbar"
-                >
-                  <div className="flex items-center gap-2 bg-neutral-50 p-1.5 px-3 border border-border rounded-sm">
-                    <Clock size={12} className="text-neutral-400" />
-                    <input 
-                      type="time" 
-                      value={selectedTime}
-                      onChange={(e) => setSelectedTime(e.target.value)}
-                      className="bg-transparent text-[11px] font-black border-none focus:ring-0 cursor-pointer p-0 h-auto"
-                    />
-                  </div>
-                  
-                  <div className="flex items-center gap-2 bg-neutral-50 p-1.5 px-3 border border-border rounded-sm whitespace-nowrap">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">Repetir:</span>
-                    <select 
-                      value={selectedRecurrence}
-                      onChange={(e) => setSelectedRecurrence(e.target.value as RecurrenceType)}
-                      className="bg-transparent text-[11px] font-black uppercase tracking-widest border-none focus:ring-0 cursor-pointer p-0 h-auto appearance-none"
-                    >
-                      {RECURRENCE_OPTIONS.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+      {/* Main Container */}
+      <div className="relative z-10 flex h-full overflow-hidden flex-col md:flex-row">
+        
+        {/* Sidebar Navigation - Glass Rail (Desktop) */}
+        <nav className="hidden md:flex w-20 glass border-r border-black/5 flex-col items-center py-8 gap-8 flex-shrink-0">
+          <div className="w-12 h-12 bg-white border border-black/5 rounded-2xl flex items-center justify-center shadow-[0_8px_20px_rgba(0,0,0,0.05)]">
+            <Zap size={24} className="text-accent" />
           </div>
-        </div>
-      </header>
-
-      <main className="flex-grow overflow-y-auto no-scrollbar">
-        <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-0.5 bg-border min-h-full pb-24 lg:pb-0">
-          {/* Main List */}
-        <section className={`bg-white p-6 md:p-10 space-y-8 ${activeTab === 'calendar' ? 'hidden lg:block' : 'block'}`}>
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-            <h1 className="text-2xl md:text-4xl font-black tracking-tight text-ink uppercase">
-              {format(selectedDate, 'eeee, d', { locale: ptBR })}
-            </h1>
-            <div className="flex items-center gap-4">
-              <span className="text-[10px] md:text-sm font-bold text-neutral-400 uppercase tracking-widest">
-                {filteredItems.length} Compromissos
-              </span>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {filteredItems.length === 0 ? (
-              <div className="py-20 md:py-24 text-center border-2 border-dashed border-border rounded-sm">
-                <Clock className="mx-auto mb-4 text-neutral-200" size={40} />
-                <p className="text-neutral-400 font-bold uppercase text-[10px] tracking-widest">Lista vazia</p>
-              </div>
-            ) : (
-              <AnimatePresence mode="popLayout" initial={false}>
-                {filteredItems.map((item) => {
-                  const isDone = item.completedDates?.includes(format(selectedDate, 'yyyy-MM-dd'));
-                  return (
-                    <motion.div
-                      key={item.id}
-                      layout
-                      initial={{ opacity: 0, scale: 0.98 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.98 }}
-                      className={`flex flex-col md:grid md:grid-cols-[80px_1fr_120px] items-start md:items-center p-4 md:p-5 border border-border rounded-sm transition-all gap-3 md:gap-4 ${isDone ? 'opacity-40 grayscale' : 'bg-white hover:bg-neutral-50 shadow-sm md:shadow-none'}`}
-                      style={!isDone ? { borderLeft: `4px solid ${CATEGORY_STYLES[item.category] || '#343A40'}` } : {}}
-                    >
-                      <div className="flex items-center justify-between w-full md:w-auto">
-                        <span className="text-sm font-black text-highlight tabular-nums">
-                          {format(item.timestamp, 'HH:mm')}
-                        </span>
-                        <div className="md:hidden text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
-                          {item.category}
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-3 w-full">
-                        <button 
-                          onClick={() => toggleDone(item.id)}
-                          className={`flex-shrink-0 w-6 h-6 border-2 border-ink rounded-sm flex items-center justify-center transition-colors ${isDone ? 'bg-ink' : 'bg-transparent'}`}
-                        >
-                          {isDone && <CheckCircle2 size={16} className="text-white" />}
-                        </button>
-                        
-                        {item.image && (
-                          <div 
-                            className="relative group flex-shrink-0 cursor-zoom-in"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setViewingImage(item.image!);
-                            }}
-                          >
-                            <img 
-                              src={item.image} 
-                              className={`w-12 h-12 md:w-16 md:h-16 object-cover rounded-sm border-2 border-ink transition-all ${isDone ? 'grayscale opacity-50' : ''}`}
-                              referrerPolicy="no-referrer"
-                            />
-                            {/* Expand icon purely decorational or for future full-screen view */}
-                            <div className="absolute inset-0 bg-ink/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity rounded-sm">
-                              <ImageIcon size={14} className="text-white" />
-                            </div>
-                          </div>
-                        )}
-
-                        <p className={`text-base font-medium break-words overflow-hidden ${isDone ? 'line-through' : 'text-ink'}`}>
-                          {item.text}
-                        </p>
-                      </div>
-
-                      <div className="text-right w-full md:w-auto space-y-1 mt-2 md:mt-0 flex md:flex-col items-center md:items-end justify-between md:justify-end">
-                        <div className="hidden md:block text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
-                          {item.category}
-                        </div>
-                        {item.recurrence !== 'none' && (
-                          <div className="text-[9px] font-bold text-highlight uppercase tracking-[0.2em] flex items-center justify-end gap-1">
-                            <Repeat size={10} />
-                            {RECURRENCE_OPTIONS.find(o => o.value === item.recurrence)?.label}
-                          </div>
-                        )}
-                        <div className="flex md:flex-col items-center md:items-end justify-between md:justify-end gap-2 mt-2 md:mt-0">
-                          <button 
-                            onClick={() => {
-                              setEditingItem(item);
-                              setEditText(item.text);
-                              setEditCategory(item.category);
-                              setEditRecurrence(item.recurrence);
-                              setEditTime(format(item.timestamp, 'HH:mm'));
-                            }}
-                            className="text-highlight hover:underline text-[10px] font-bold uppercase transition-colors"
-                          >
-                            Editar
-                          </button>
-                          <button 
-                            onClick={() => {
-                              if (item.recurrence === 'none') {
-                                deleteItem(item.id, true);
-                              } else {
-                                setDeletingItem(item);
-                              }
-                            }}
-                            className="text-red-500 hover:text-red-700 text-[10px] font-bold uppercase transition-colors"
-                          >
-                            Excluir
-                          </button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            )}
-          </div>
-        </section>
-
-        {/* Side Panel / Mobile Calendar Tab */}
-        <aside className={`bg-[#F1F3F5] p-6 md:p-10 flex flex-col gap-10 ${activeTab === 'list' ? 'hidden lg:flex' : 'flex'}`}>
-          <div className="bg-white border border-border p-5 rounded-sm shadow-sm space-y-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xs font-black uppercase tracking-[0.2em] text-neutral-500">
-                {format(currentMonth, 'MMMM yyyy', { locale: ptBR })}
-              </h2>
-              <div className="flex gap-2">
-                <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-neutral-100 rounded-sm border border-transparent hover:border-border transition-all"><ChevronLeft size={16} /></button>
-                <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 hover:bg-neutral-100 rounded-sm border border-transparent hover:border-border transition-all"><ChevronRight size={16} /></button>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-7 gap-1">
-              {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((day, index) => (
-                <div key={`${day}-${index}`} className="h-8 flex items-center justify-center text-[10px] font-bold text-neutral-300">
-                  {day}
-                </div>
-              ))}
-              {monthDays.map((date) => {
-                const isSelected = isSameDay(date, selectedDate);
-                const hasItems = hasItemsOnDay(date);
-                const isCurrentMonth = isSameDay(startOfMonth(date), startOfMonth(currentMonth));
-                
-                return (
-                  <button
-                    key={date.toString()}
-                    onClick={() => {
-                      setSelectedDate(date);
-                      if (window.innerWidth < 1024) setActiveTab('list');
-                    }}
-                    className={`aspect-square flex items-center justify-center text-[11px] font-bold rounded-sm transition-all border ${
-                      isSelected 
-                        ? 'bg-ink text-white border-ink' 
-                        : hasItems 
-                          ? 'border-highlight text-highlight' 
-                          : 'border-transparent text-ink hover:border-neutral-200'
-                    } ${!isCurrentMonth ? 'opacity-20' : ''}`}
-                  >
-                    {format(date, 'd')}
-                  </button>
-                );
-              })}
-            </div>
-            
+          
+          <div className="flex flex-col gap-4 mt-8">
             <button 
-              onClick={() => {
-                setSelectedDate(startOfToday());
-                if (window.innerWidth < 1024) setActiveTab('list');
-              }}
-              className="w-full mt-4 p-3 border-2 border-ink bg-white text-ink text-[11px] font-black uppercase tracking-widest hover:bg-ink hover:text-white transition-all rounded-sm"
+              onClick={() => setActiveTab('list')}
+              className={`p-3 rounded-2xl transition-all duration-500 ${activeTab === 'list' ? 'bg-accent/10 text-accent ring-1 ring-accent/20' : 'text-black/30 hover:text-black/60'}`}
             >
-              Hoje
+              <Clock size={24} />
+            </button>
+            <button 
+              onClick={() => setActiveTab('calendar')}
+              className={`p-3 rounded-2xl transition-all duration-500 ${activeTab === 'calendar' ? 'bg-highlight/10 text-highlight ring-1 ring-highlight/20' : 'text-black/30 hover:text-black/60'}`}
+            >
+              <CalendarDays size={24} />
             </button>
           </div>
 
-          <div className="space-y-4">
-            <h4 className="text-[11px] font-black text-neutral-400 uppercase tracking-widest">Informações</h4>
-            <div className="p-5 bg-white border-2 border-ink rounded-sm space-y-3">
-              <p className="text-[13px] leading-relaxed font-bold italic">
-                Sua agenda é 100% privada e reside apenas neste dispositivo.
-              </p>
-              <div className="h-0.5 bg-ink w-full opacity-10" />
-              <p className="text-[13px] leading-relaxed flex items-center gap-2 font-medium">
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                Sistema Operacional
-              </p>
-            </div>
+          <div className="mt-auto flex flex-col gap-6 items-center">
+            <div className="w-1 h-12 bg-gradient-to-b from-transparent via-black/5 to-transparent rounded-full" />
+            <button className="text-black/10 hover:text-accent transition-colors">
+              <MoreHorizontal size={20} />
+            </button>
           </div>
-        </aside>
-        </div>
-      </main>
+        </nav>
 
-      {/* Mobile Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-ink p-3 grid grid-cols-2 lg:hidden z-40">
-        <button 
-          onClick={() => setActiveTab('list')}
-          className={`flex flex-col items-center justify-center py-2 gap-1 transition-all ${activeTab === 'list' ? 'text-highlight' : 'text-neutral-400'}`}
-        >
-          <Clock size={20} className={activeTab === 'list' ? 'fill-highlight/10' : ''} />
-          <span className="text-[10px] font-black uppercase tracking-widest">Agenda</span>
-        </button>
-        <button 
-          onClick={() => setActiveTab('calendar')}
-          className={`flex flex-col items-center justify-center py-2 gap-1 transition-all ${activeTab === 'calendar' ? 'text-highlight' : 'text-neutral-400'}`}
-        >
-          <CalendarDays size={20} className={activeTab === 'calendar' ? 'fill-highlight/10' : ''} />
-          <span className="text-[10px] font-black uppercase tracking-widest">Calendário</span>
-        </button>
-      </nav>
+        {/* Content Area */}
+        <main className="flex-grow flex flex-col overflow-hidden relative">
+          
+          {/* Top Bar - Functional Glass */}
+          <header className="h-16 md:h-20 flex items-center justify-between px-6 md:px-12 border-b border-black/5 glass backdrop-blur-3xl z-20">
+            <div className="flex items-center gap-4 md:gap-6">
+              <h2 className="font-display font-black text-lg md:text-xl tracking-tight uppercase text-black/80">
+                {format(selectedDate, 'eeee, dd', { locale: ptBR })}
+              </h2>
+              <div className="h-4 w-[1px] bg-black/10 hidden md:block" />
+              <div className="hidden md:flex items-center gap-4 overflow-x-auto no-scrollbar max-w-[400px]">
+                <button
+                  onClick={() => setFilterCategory('Tudo')}
+                  className={`text-[9px] font-black uppercase tracking-[0.2em] transition-all whitespace-nowrap ${filterCategory === 'Tudo' ? 'text-accent' : 'text-black/30 hover:text-black/60'}`}
+                >
+                  Global
+                </button>
+                {categories.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setFilterCategory(cat)}
+                    className={`text-[9px] font-black uppercase tracking-[0.2em] transition-all whitespace-nowrap ${filterCategory === cat ? 'text-highlight' : 'text-black/30 hover:text-black/60'}`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+                
+                <button 
+                  onClick={() => setIsManageCategoriesOpen(true)} 
+                  className="text-black/20 hover:text-accent transition-all flex items-center gap-1.5"
+                >
+                  <Plus size={14} />
+                  <span className="text-[8px] font-black uppercase tracking-widest hidden lg:block">Manage Sectors</span>
+                </button>
+              </div>
+            </div>
 
-      {/* Edit Modal */}
-      <AnimatePresence>
-        {editingItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setEditingItem(null)}
-              className="absolute inset-0 bg-ink/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative bg-white border-4 border-ink p-6 md:p-8 w-full max-w-md shadow-[10px_10px_0px_#000]"
-            >
-              <h3 className="text-xl font-black uppercase tracking-tighter mb-6">Editar Compromisso</h3>
+            <div className="flex items-center gap-4">
+              {/* Mobile Category Toggle */}
+              <div className="flex md:hidden items-center gap-2">
+                <select 
+                  value={filterCategory} 
+                  onChange={(e) => setFilterCategory(e.target.value)} 
+                  className="bg-black/5 border-none text-[10px] font-black uppercase tracking-widest rounded-lg px-3 py-2 outline-none"
+                >
+                  <option value="Tudo">Global</option>
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <button 
+                  onClick={() => setIsManageCategoriesOpen(true)} 
+                  className="p-2 text-black/20 hover:text-accent"
+                >
+                  <MoreHorizontal size={20} />
+                </button>
+              </div>
               
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase text-neutral-400">Texto</label>
-                  <input 
-                    type="text" 
-                    value={editText}
-                    onChange={(e) => setEditText(e.target.value)}
-                    className="w-full border-2 border-ink p-3 text-lg font-bold outline-none rounded-sm"
-                  />
+              <div className="hidden lg:flex flex-col items-end">
+                <span className="text-[8px] font-black text-black/20 uppercase tracking-[0.3em]">Status</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-accent font-bold">ACTIVE_NODE</span>
+                  <div className="w-1.5 h-1.5 bg-accent rounded-full animate-pulse shadow-[0_0_8px_rgba(0,209,255,1)]" />
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* List/Calendar View Container */}
+          <div className="flex-grow overflow-y-auto no-scrollbar relative">
+            <div className="max-w-[1600px] mx-auto px-4 md:px-12 py-8 md:py-12">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-16 relative">
+                
+                {/* Timeline Column */}
+                <div className={`lg:col-span-4 space-y-8 pb-32 ${activeTab === 'list' ? 'block' : 'hidden lg:block'}`}>
+                  <div className="flex items-end justify-between border-b border-black/5 pb-4">
+                    <div>
+                      <h1 className="font-display font-black text-3xl md:text-5xl uppercase tracking-tighter text-black/90">
+                        Timeline
+                      </h1>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                        <span className="font-mono text-[9px] text-black/20 uppercase tracking-[0.2em]">
+                          {filteredItems.length} SEQUENCES ACTIVE
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:gap-4">
+                    {filteredItems.length === 0 ? (
+                      <div className="py-24 md:py-32 flex flex-col items-center justify-center glass-card rounded-[2rem] border border-dashed border-black/5">
+                        <Zap size={40} className="text-black/5 mb-4" />
+                        <p className="text-black/30 font-mono text-[9px] tracking-[0.3em] uppercase">Ready for transmission...</p>
+                      </div>
+                    ) : (
+                      <AnimatePresence mode="popLayout" initial={false}>
+                        {filteredItems.map((item) => {
+                          const isDone = item.completedDates?.includes(format(selectedDate, 'yyyy-MM-dd'));
+                          return (
+                            <motion.div
+                              key={item.id}
+                              layout
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.98 }}
+                              className={`group relative p-4 md:p-6 glass-card rounded-2xl border transition-all duration-300 ${isDone ? 'opacity-30' : 'hover:scale-[1.02] active:scale-[0.98]'}`}
+                              style={{ borderColor: !isDone ? `${CATEGORY_STYLES[item.category] || 'rgba(0,0,0,0.05)'}22` : undefined }}
+                            >
+                              <div className="flex flex-col gap-4">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <button 
+                                      onClick={() => toggleDone(item.id)}
+                                      className={`w-8 h-8 rounded-xl border border-black/5 flex items-center justify-center transition-all duration-500 ${isDone ? 'bg-accent text-white border-accent shadow-[0_8px_15px_rgba(0,209,255,0.2)]' : 'bg-white hover:border-accent/30'}`}
+                                    >
+                                      <CheckCircle2 size={isDone ? 20 : 16} className={isDone ? 'text-white' : 'text-black/5'} />
+                                    </button>
+                                    <span className="font-mono text-lg font-bold tracking-tight text-accent">
+                                      {format(item.timestamp, 'HH:mm')}
+                                    </span>
+                                  </div>
+                                  <span className="text-[8px] font-black text-black/20 uppercase tracking-widest px-2 py-1 bg-black/5 rounded-md">
+                                    {item.category || 'System'}
+                                  </span>
+                                </div>
+
+                                <div className="flex-grow min-w-0">
+                                  <p className={`text-base font-semibold tracking-tight leading-tight ${isDone ? 'line-through text-black/20' : 'text-black/80'}`}>
+                                    {item.text}
+                                  </p>
+                                  {item.recurrence !== 'none' && (
+                                    <div className="mt-2 flex items-center gap-1">
+                                      <Repeat size={10} className="text-highlight/50" />
+                                      <span className="text-[8px] font-bold text-highlight/50 uppercase tracking-widest">
+                                        {RECURRENCE_OPTIONS.find(o => o.value === item.recurrence)?.label}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {item.image && (
+                                  <div 
+                                    className="relative cursor-zoom-in rounded-xl overflow-hidden group/img border-4 border-white shadow-md"
+                                    onClick={() => setViewingImage(item.image!)}
+                                  >
+                                    <img src={item.image} className="w-full h-32 object-cover transition-transform duration-700 group-hover/img:scale-110" referrerPolicy="no-referrer" />
+                                  </div>
+                                )}
+
+                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300">
+                                  <button 
+                                    onClick={() => {
+                                      setEditingItem(item);
+                                      setEditText(item.text);
+                                      setEditCategory(item.category);
+                                      setEditRecurrence(item.recurrence);
+                                      setEditTime(format(item.timestamp, 'HH:mm'));
+                                    }}
+                                    className="p-2 text-black/20 hover:text-highlight transition-colors"
+                                  >
+                                    <Plus size={18} className="rotate-45" /> 
+                                  </button>
+                                  <button 
+                                    onClick={() => item.recurrence === 'none' ? deleteItem(item.id) : setDeletingItem(item)}
+                                    className="p-2 text-black/20 hover:text-red-500 transition-colors"
+                                  >
+                                    <Trash2 size={18} />
+                                  </button>
+                                </div>
+                              </div>
+                            </motion.div>
+                          );
+                        })}
+                      </AnimatePresence>
+                    )}
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-neutral-400">Hora</label>
-                    <input 
-                      type="time" 
-                      value={editTime}
-                      onChange={(e) => setEditTime(e.target.value)}
-                      className="w-full border-2 border-ink p-2 font-bold outline-none rounded-sm"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-neutral-400">Categoria</label>
-                    <select 
-                      value={editCategory}
-                      onChange={(e) => setEditCategory(e.target.value)}
-                      className="w-full border-2 border-ink p-2 font-bold outline-none rounded-sm"
+                {/* Matrix / Calendar Column */}
+                <div className={`lg:col-span-8 space-y-8 pb-32 ${activeTab === 'calendar' ? 'block' : 'hidden lg:block'}`}>
+                  {/* Subtle Divider for desktop */}
+                  <div className="hidden lg:block absolute left-[33%] top-0 bottom-0 w-[1px] bg-gradient-to-b from-transparent via-black/5 to-transparent pointer-events-none" />
+                  
+                  <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                    <div>
+                      <h1 className="font-display font-black text-3xl md:text-6xl uppercase tracking-tighter text-black/90">Matrix</h1>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-highlight" />
+                        <span className="font-mono text-[9px] text-black/20 uppercase tracking-[0.4em]">Spatial_Array Coordination</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 glass p-1.5 rounded-2xl border border-black/5 shadow-sm">
+                       <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 text-black/30 hover:text-black transition-colors"><ChevronLeft size={20} /></button>
+                       <span className="px-3 font-display font-bold text-sm md:text-base uppercase tracking-tight min-w-[140px] text-center">{format(currentMonth, 'MMMM yyyy')}</span>
+                       <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 text-black/30 hover:text-black transition-colors"><ChevronRight size={20} /></button>
+                    </div>
+                  </header>
+
+                  <div className="glass-card rounded-[3rem] p-6 md:p-12 border border-black/5 relative overflow-hidden shadow-2xl bg-white/50">
+                    <div className="grid grid-cols-7 gap-2 md:gap-4 relative z-10">
+                      {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => (
+                        <div key={d} className="font-mono text-[8px] md:text-[10px] text-black/20 font-black uppercase text-center tracking-widest">{d}</div>
+                      ))}
+                      {monthDays.map((date) => {
+                        const isSelected = isSameDay(date, selectedDate);
+                        const hasItems = hasItemsOnDay(date);
+                        const isCurrentMonth = isSameDay(startOfMonth(date), startOfMonth(currentMonth));
+                        const isTdy = isToday(date);
+                        
+                        return (
+                          <button
+                            key={date.toString()}
+                            onClick={() => {
+                              setSelectedDate(date);
+                              if (window.innerWidth < 1024) setActiveTab('list');
+                            }}
+                            className={`group relative aspect-square flex flex-col items-center justify-center rounded-[2rem] transition-all duration-500 ${isSelected ? 'bg-black text-white shadow-2xl scale-110' : 'hover:bg-black/5'} ${!isCurrentMonth ? 'opacity-10' : 'opacity-100'}`}
+                          >
+                            <span className={`text-base md:text-3xl font-display font-black ${isSelected ? 'text-white' : isTdy ? 'text-accent' : 'text-black/60'}`}>{format(date, 'd')}</span>
+                            {hasItems && (
+                              <div className={`w-1.5 h-1.5 rounded-full mt-2 transition-colors ${isSelected ? 'bg-accent' : 'bg-highlight/40'}`} />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button 
+                      onClick={() => { setSelectedDate(startOfToday()); if (window.innerWidth < 1024) setActiveTab('list'); }}
+                      className="mt-8 md:mt-12 w-full py-4 glass hover:bg-black/5 text-black/30 font-display font-bold uppercase tracking-[0.4em] text-[10px] transition-all duration-300 rounded-[2rem] border border-black/5"
                     >
-                      {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                      Reset Core Time
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile Bottom Navigation */}
+          <nav className="md:hidden h-20 glass border-t border-black/5 px-6 flex items-center justify-between z-40">
+            <button 
+              onClick={() => setActiveTab('list')}
+              className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'list' ? 'text-accent' : 'text-black/30'}`}
+            >
+              <div className={`w-12 h-1 px-4 mb-1 rounded-full transition-all ${activeTab === 'list' ? 'bg-accent' : 'bg-transparent'}`} />
+              <Clock size={20} />
+              <span className="text-[8px] font-black uppercase tracking-tighter">Timeline</span>
+            </button>
+            
+            <button 
+               onClick={() => {
+                  const input = document.querySelector('input[placeholder="New Protocol..."]');
+                  if (input) (input as HTMLInputElement).focus();
+               }}
+               className="relative -mt-10 group"
+            >
+              <div className="absolute inset-0 bg-accent blur-xl opacity-20 group-hover:opacity-40 transition-opacity" />
+              <div className="w-16 h-16 bg-black rounded-3xl flex items-center justify-center shadow-2xl border-[6px] border-white relative z-10 transition-transform active:scale-90">
+                 <Zap size={24} className="text-accent fill-accent" />
+              </div>
+            </button>
+
+            <button 
+              onClick={() => setActiveTab('calendar')}
+              className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'calendar' ? 'text-highlight' : 'text-black/30'}`}
+            >
+              <div className={`w-12 h-1 px-4 mb-1 rounded-full transition-all ${activeTab === 'calendar' ? 'bg-highlight' : 'bg-transparent'}`} />
+              <CalendarDays size={20} />
+              <span className="text-[8px] font-black uppercase tracking-tighter">Matrix</span>
+            </button>
+          </nav>
+
+          {/* Liquid Command Center - Floating Input */}
+          <div className="fixed bottom-24 md:absolute md:bottom-8 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4 md:px-6 z-40">
+            <div className="mb-2 flex items-center justify-between px-2">
+              <span className="text-[9px] font-black text-black/40 uppercase tracking-[0.2em]">Neural Input_V2</span>
+              <span className="text-[9px] font-black text-accent uppercase tracking-[0.2em] animate-pulse">Connection Stable</span>
+            </div>
+            <motion.div 
+              layout
+              className="glass border border-black/5 rounded-[2rem] p-2 flex flex-col gap-1 shadow-[0_20px_60px_rgba(0,0,0,0.1)]"
+            >
+              <div className="flex items-center h-14 md:h-16 px-4 md:px-6 relative">
+                <input
+                  type="text"
+                  placeholder="New Protocol..."
+                  className="flex-grow bg-transparent text-lg font-semibold outline-none placeholder:text-black/10 text-black/80"
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddItem(true)}
+                />
+                
+                <div className="flex items-center gap-2">
+                  {pendingImage && (
+                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="relative">
+                      <img src={pendingImage} className="w-10 h-10 rounded-xl object-cover ring-2 ring-accent shadow-sm" />
+                      <button onClick={() => setPendingImage(null)} className="absolute -top-1.5 -right-1.5 bg-red-500 rounded-full p-1 border border-white text-white shadow-sm"><X size={8}/></button>
+                    </motion.div>
+                  )}
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`p-2 rounded-xl transition-all duration-300 ${pendingImage ? 'text-accent' : 'text-black/20 hover:text-black/40'}`}
+                  >
+                    <Camera size={22} />
+                  </button>
+                  <button
+                    onClick={() => handleAddItem(true)}
+                    className="h-10 md:h-12 w-10 md:w-12 bg-black text-white rounded-full flex items-center justify-center transition-all duration-300 hover:bg-accent active:scale-95 shadow-md group"
+                  >
+                    <Plus size={24} strokeWidth={3} className="group-hover:rotate-90 transition-transform duration-300" />
+                  </button>
+                </div>
+                <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
+              </div>
+
+              <div className="flex items-center justify-between px-4 pb-1 border-t border-black/5 pt-1">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2 text-black/20 hover:text-accent transition-colors cursor-pointer relative">
+                    <Clock size={11} />
+                    <input type="time" value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} className="bg-transparent border-none p-0 text-[10px] font-black font-mono focus:ring-0 w-12 cursor-pointer" title="Sincronização Temporal" />
+                  </div>
+                  <div className="flex items-center gap-2 text-black/20 hover:text-highlight transition-colors cursor-pointer">
+                    <Repeat size={11} />
+                    <select value={selectedRecurrence} onChange={(e) => setSelectedRecurrence(e.target.value as RecurrenceType)} className="bg-transparent border-none p-0 text-[10px] font-black uppercase tracking-widest focus:ring-0 appearance-none pointer-events-auto" title="Frequência de Protocolo">
+                      {RECURRENCE_OPTIONS.map(opt => <option key={opt.value} value={opt.value} className="bg-white text-black">{opt.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2 text-black/20 hover:text-accent transition-colors cursor-pointer">
+                    <Briefcase size={11} />
+                    <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="bg-transparent border-none p-0 text-[10px] font-black uppercase tracking-widest focus:ring-0 appearance-none pointer-events-auto" title="Setor de Alocação">
+                      {categories.map(cat => <option key={cat} value={cat} className="bg-white text-black">{cat}</option>)}
                     </select>
                   </div>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        </main>
+      </div>
 
+      {/* Futuristic Modals */}
+      <AnimatePresence>
+        {editingItem && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEditingItem(null)} className="absolute inset-0 bg-black/50 backdrop-blur-md" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-white/90 backdrop-blur-2xl border border-black/5 p-8 rounded-[2.5rem] w-full max-w-lg shadow-[0_20px_80px_rgba(0,0,0,0.15)]">
+              <h3 className="font-display font-black text-2xl uppercase tracking-widest mb-8 text-black/80">Modify Entry</h3>
+              <div className="space-y-6">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase text-neutral-400">Repetir</label>
-                  <select 
-                    value={editRecurrence}
-                    onChange={(e) => setEditRecurrence(e.target.value as RecurrenceType)}
-                    className="w-full border-2 border-ink p-2 font-bold outline-none rounded-sm"
-                  >
-                    {RECURRENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  <label className="text-[10px] font-mono font-bold uppercase text-black/20 tracking-widest ml-1">Transmission Data</label>
+                  <input type="text" value={editText} onChange={(e) => setEditText(e.target.value)} className="w-full bg-black/5 border border-black/5 p-4 text-xl font-medium outline-none rounded-2xl focus:border-accent transition-all" />
+                </div>
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-mono font-bold uppercase text-black/20 tracking-widest ml-1">Temporal Sync</label>
+                    <input type="time" value={editTime} onChange={(e) => setEditTime(e.target.value)} className="w-full bg-black/5 border border-black/5 p-3 font-mono text-lg font-bold outline-none rounded-2xl" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-mono font-bold uppercase text-black/20 tracking-widest ml-1">Protocol Type</label>
+                    <select value={editCategory} onChange={(e) => setEditCategory(e.target.value as Category)} className="w-full bg-black/5 border border-black/5 p-3 font-mono text-sm font-bold outline-none rounded-2xl text-accent">
+                      {categories.map(c => <option key={c} value={c} className="bg-white text-black">{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-mono font-bold uppercase text-black/20 tracking-widest ml-1">Recurrence Protocol</label>
+                  <select value={editRecurrence} onChange={(e) => setEditRecurrence(e.target.value as RecurrenceType)} className="w-full bg-black/5 border border-black/5 p-3 font-mono text-sm font-bold outline-none rounded-2xl text-accent">
+                    {RECURRENCE_OPTIONS.map(o => <option key={o.value} value={o.value} className="bg-white text-black">{o.label}</option>)}
                   </select>
                 </div>
               </div>
-
-              <div className="flex gap-3 mt-8">
-                <button 
-                  onClick={() => setEditingItem(null)}
-                  className="flex-1 p-3 border-2 border-ink font-bold uppercase text-sm hover:bg-neutral-50 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={handleUpdateItem}
-                  className="flex-1 p-3 bg-ink text-white font-bold uppercase text-sm hover:opacity-90 transition-opacity"
-                >
-                  Salvar
-                </button>
+              <div className="flex gap-4 mt-10">
+                <button onClick={() => setEditingItem(null)} className="flex-1 py-4 glass hover:bg-black/5 text-black/40 font-black uppercase text-[10px] tracking-[0.3em] rounded-2xl border border-black/5 transition-all">Abort</button>
+                <button onClick={handleUpdateItem} className="flex-1 py-4 bg-black text-white font-black uppercase text-[10px] tracking-[0.3em] rounded-2xl shadow-xl hover:bg-accent transition-all">Execute</button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {deletingItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setDeletingItem(null)}
-              className="absolute inset-0 bg-ink/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative bg-white border-4 border-ink p-6 md:p-8 w-full max-w-sm shadow-[10px_10px_0px_#000]"
-            >
-              <h3 className="text-xl font-black uppercase tracking-tighter mb-4 text-red-600">Excluir Compromisso</h3>
-              <p className="text-sm font-medium mb-8 text-neutral-600">
-                Este é um compromisso recorrente. Como deseja excluí-lo?
-              </p>
-
-              <div className="space-y-3">
-                <button 
-                  onClick={() => deleteItem(deletingItem.id, false)}
-                  className="w-full p-4 border-2 border-ink font-bold uppercase text-[11px] tracking-widest hover:bg-neutral-50 transition-all flex items-center justify-between group"
-                >
-                  <span>Apenas desta data</span>
-                  <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDeletingItem(null)} className="absolute inset-0 bg-black/50 backdrop-blur-md" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-white/90 backdrop-blur-2xl border border-black/5 p-10 rounded-[2.5rem] w-full max-w-md shadow-2xl">
+              <h3 className="font-display font-black text-2xl uppercase tracking-widest mb-4 text-red-500">Erase Protocol</h3>
+              <p className="text-xs font-medium mb-10 text-black/40 leading-relaxed font-mono uppercase tracking-widest">Target confirmed for decommissioning. Select radius:</p>
+              <div className="space-y-4">
+                <button onClick={() => deleteItem(deletingItem.id, false)} className="w-full py-5 glass border-black/5 text-black/80 font-black uppercase text-[10px] tracking-[0.3em] rounded-2xl hover:bg-black/5 transition-all flex items-center justify-between px-8">
+                  <span>Single Synchronized Instance</span>
+                  <ChevronRight size={14} />
                 </button>
-                <button 
-                  onClick={() => deleteItem(deletingItem.id, true)}
-                  className="w-full p-4 bg-red-600 text-white border-2 border-ink font-bold uppercase text-[11px] tracking-widest hover:bg-red-700 transition-all flex items-center justify-between group shadow-[4px_4px_0px_#000]"
-                >
-                  <span>Todas as ocorrências</span>
-                  <Trash2 size={16} className="group-hover:scale-110 transition-transform" />
+                <button onClick={() => deleteItem(deletingItem.id, true)} className="w-full py-5 bg-red-500/10 border border-red-500/20 text-red-600 font-black uppercase text-[10px] tracking-[0.3em] rounded-2xl hover:bg-red-500 hover:text-white transition-all flex items-center justify-between px-8 text-shadow-none">
+                  <span>Total Timeline Deletion</span>
+                  <Trash2 size={14} />
                 </button>
-                <button 
-                  onClick={() => setDeletingItem(null)}
-                  className="w-full p-4 text-neutral-400 font-bold uppercase text-[10px] tracking-widest hover:text-ink transition-colors"
-                >
-                  Cancelar
-                </button>
+                <button onClick={() => setDeletingItem(null)} className="w-full py-4 text-black/20 font-black uppercase text-[10px] tracking-[0.2em] rounded-2xl">Abort</button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* Image Viewer Modal */}
-      <AnimatePresence>
-        {viewingImage && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setViewingImage(null)}
-              className="absolute inset-0 bg-ink/90 backdrop-blur-md"
-            />
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="relative max-w-4xl max-h-[85vh] w-full flex flex-col items-center"
-            >
-              <button 
-                onClick={() => setViewingImage(null)}
-                className="absolute -top-12 right-0 text-white hover:text-highlight transition-colors flex items-center gap-2 font-bold uppercase text-[10px] tracking-widest"
-              >
-                <X size={20} /> FECHAR
-              </button>
-              <img 
-                src={viewingImage} 
-                className="max-w-full max-h-full object-contain border-4 border-white shadow-[20px_20px_0px_#000] rounded-sm" 
-                referrerPolicy="no-referrer"
-              />
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Category Delete Confirmation Modal */}
       <AnimatePresence>
         {categoryToDelete && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setCategoryToDelete(null)}
-              className="absolute inset-0 bg-ink/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative bg-white border-4 border-ink p-6 md:p-8 w-full max-w-sm shadow-[10px_10px_0px_#000]"
-            >
-              <h3 className="text-xl font-black uppercase tracking-tighter mb-4 text-red-600">Excluir Categoria</h3>
-              <p className="text-sm font-medium mb-8 text-neutral-600">
-                Tem certeza que deseja excluir a categoria <span className="font-bold text-ink">"{categoryToDelete}"</span>? 
-                Os compromissos existentes nesta categoria não serão excluídos, mas ficarão sem categoria vinculada.
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setCategoryToDelete(null)} className="absolute inset-0 bg-white/40 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative glass-card border-black p-10 rounded-[2.5rem] w-full max-w-sm text-center shadow-2xl z-10">
+              <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center mb-6 mx-auto">
+                <AlertTriangle className="text-accent" size={24} />
+              </div>
+              <h3 className="font-display font-black text-2xl uppercase tracking-widest mb-4 text-black/80">Tem certeza que deseja excluir?</h3>
+              <p className="text-[10px] font-medium mb-10 text-black/40 leading-relaxed uppercase tracking-widest">
+                A categoria <span className="text-accent">"{categoryToDelete}"</span> será removida.
+                Protocolos vinculados serão mantidos na Timeline Global.
               </p>
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => setCategoryToDelete(null)}
-                  className="flex-1 p-3 border-2 border-ink font-bold uppercase text-[10px] tracking-widest hover:bg-neutral-50 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={() => {
-                    if (categoryToDelete) deleteCategory(categoryToDelete);
-                  }}
-                  className="flex-1 p-3 bg-red-600 text-white font-bold uppercase text-[10px] tracking-widest hover:bg-red-700 transition-colors shadow-[4px_4px_0px_#000]"
-                >
-                  Confirmar
-                </button>
+              <div className="flex gap-4">
+                <button onClick={() => setCategoryToDelete(null)} className="flex-1 py-4 glass text-black/40 font-black uppercase text-[10px] tracking-[0.2em] rounded-2xl border-black/5 hover:bg-black/5 transition-all">Abort</button>
+                <button onClick={() => deleteCategory(categoryToDelete)} className="flex-1 py-4 bg-accent text-white font-black uppercase text-[10px] tracking-[0.2em] rounded-2xl shadow-lg hover:bg-black transition-all">Confirm</button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {isManageCategoriesOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsManageCategoriesOpen(false)} className="absolute inset-0 bg-white/40 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative glass-card border-black p-8 rounded-[2.5rem] w-full max-w-lg shadow-[0_20px_80px_rgba(0,0,0,0.1)] z-10 flex flex-col h-[70vh] md:h-auto md:max-h-[80vh]">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h3 className="font-display font-black text-2xl uppercase tracking-tighter text-black/90">Gerenciar Setores</h3>
+                  <p className="text-[10px] font-mono text-black/30 uppercase tracking-widest">Protocol Architecture v4.0</p>
+                </div>
+                <button onClick={() => setIsManageCategoriesOpen(false)} className="p-2 hover:bg-black/5 rounded-full transition-colors"><X size={20} /></button>
+              </div>
+
+              <div className="flex-grow overflow-y-auto no-scrollbar mb-8 space-y-2 pr-2">
+                {categories.length === 0 ? (
+                  <div className="py-12 border-2 border-dashed border-black/5 rounded-3xl flex flex-col items-center justify-center">
+                    <AlertTriangle size={32} className="text-black/10 mb-2" />
+                    <p className="text-[10px] font-black text-black/20 uppercase tracking-widest">Nenhum setor ativo</p>
+                  </div>
+                ) : (
+                  categories.map(cat => (
+                    <div key={cat} className="flex items-center justify-between p-4 bg-black/5 rounded-2xl hover:bg-black/10 transition-colors group">
+                      <div className="flex items-center gap-4">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CATEGORY_STYLES[cat] || '#00D1FF' }} />
+                        <span className="font-bold uppercase tracking-widest text-xs">{cat}</span>
+                      </div>
+                      <button 
+                        onClick={() => { setCategoryToDelete(cat); }}
+                        className="p-2 text-black/20 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="mt-auto pt-6 border-t border-black/5">
+                <div className="flex items-end gap-3">
+                  <div className="flex-grow space-y-2">
+                    <label className="text-[9px] font-black text-black/30 uppercase tracking-[0.2em] ml-2">Novo Setor</label>
+                    <input 
+                      type="text" 
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
+                      placeholder="NOME DO PROTOCOLO..."
+                      className="w-full bg-white border border-black/10 p-4 rounded-2xl outline-none focus:border-accent font-bold uppercase text-sm tracking-widest shadow-sm text-black"
+                    />
+                  </div>
+                  <button 
+                    onClick={handleAddCategory}
+                    className="h-[52px] w-[52px] bg-black text-white rounded-2xl flex items-center justify-center hover:bg-accent transition-all active:scale-95 shadow-lg"
+                  >
+                    <Plus size={24} />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {viewingImage && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={() => setViewingImage(null)}>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-white/90 backdrop-blur-2xl" />
+            <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="relative max-w-5xl max-h-[90vh] w-full flex flex-col items-center">
+              <button 
+                onClick={() => setViewingImage(null)}
+                className="absolute -top-16 right-0 text-black/40 hover:text-accent transition-colors flex items-center gap-2 font-mono text-[10px] tracking-[0.5em] uppercase"
+              >
+                <X size={20} /> Close Stream
+              </button>
+              <img src={viewingImage} className="max-w-full max-h-full object-contain rounded-3xl border-8 border-white shadow-2xl" referrerPolicy="no-referrer" />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
