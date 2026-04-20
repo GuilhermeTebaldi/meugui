@@ -25,3 +25,12 @@
     scrollbar-width: none;
   }
 }
+
+/* Prevent iOS Safari auto-zoom when focusing small form controls. */
+@media (max-width: 1024px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}

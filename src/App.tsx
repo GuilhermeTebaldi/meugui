@@ -502,6 +502,72 @@ export default function App() {
     return completedDates.includes(selectedDateKey);
   };
 
+  const visualCategoryTimeline = useMemo(() => {
+    const categoryDayMap: Record<string, Record<string, {
+      dayDate: Date;
+      entries: Array<{ item: AgendaItem; isDone: boolean }>;
+    }>> = {};
+
+    for (const item of visualItems) {
+      const occurrenceDates: Date[] = [];
+
+      if (visualScope === 'day') {
+        if (checkItemVisibility(item, selectedDate)) {
+          occurrenceDates.push(selectedDate);
+        }
+      } else if (visualScope === 'week') {
+        for (const day of visualWeekRange.days) {
+          if (checkItemVisibility(item, day)) {
+            occurrenceDates.push(day);
+          }
+        }
+      } else {
+        const fallbackDate = new Date(item.timestamp);
+        const baseDate = item.scheduledDate ? parseISO(item.scheduledDate) : fallbackDate;
+        const validDate = Number.isNaN(baseDate.getTime()) ? fallbackDate : baseDate;
+        occurrenceDates.push(validDate);
+      }
+
+      for (const occurrenceDate of occurrenceDates) {
+        const dayKey = format(occurrenceDate, 'yyyy-MM-dd');
+
+        if (!categoryDayMap[item.category]) {
+          categoryDayMap[item.category] = {};
+        }
+        if (!categoryDayMap[item.category][dayKey]) {
+          categoryDayMap[item.category][dayKey] = {
+            dayDate: occurrenceDate,
+            entries: [],
+          };
+        }
+
+        const isDone = visualScope === 'all'
+          ? (item.completedDates?.length || 0) > 0
+          : (item.completedDates || []).includes(dayKey);
+
+        categoryDayMap[item.category][dayKey].entries.push({ item, isDone });
+      }
+    }
+
+    const timeline: Record<string, Array<{
+      dayKey: string;
+      dayDate: Date;
+      entries: Array<{ item: AgendaItem; isDone: boolean }>;
+    }>> = {};
+
+    for (const [category, dayMap] of Object.entries(categoryDayMap)) {
+      timeline[category] = Object.entries(dayMap)
+        .map(([dayKey, data]) => ({
+          dayKey,
+          dayDate: data.dayDate,
+          entries: [...data.entries].sort((a, b) => a.item.timestamp - b.item.timestamp),
+        }))
+        .sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+    }
+
+    return timeline;
+  }, [visualItems, visualScope, selectedDate, visualWeekRange.days]);
+
   const visualSummary = useMemo(() => {
     const groupedByCategory: Record<string, AgendaItem[]> = {};
     let completed = 0;
@@ -883,6 +949,7 @@ export default function App() {
                       const completionRate = categoryCard.total > 0
                         ? Math.round((categoryCard.doneCount / categoryCard.total) * 100)
                         : 0;
+                      const dayGroups = visualCategoryTimeline[categoryCard.category] || [];
 
                       return (
                         <div
@@ -912,32 +979,35 @@ export default function App() {
                             />
                           </div>
 
-                          <div className="space-y-2">
-                            {categoryCard.items.slice(0, 4).map((item) => {
-                              const isDone = isItemDoneInVisualScope(item);
-                              return (
-                                <div key={item.id} className="flex items-center gap-2.5 p-2 border border-border rounded-sm">
-                                  <span className="text-[11px] font-black text-highlight tabular-nums min-w-[42px]">
-                                    {format(item.timestamp, 'HH:mm')}
-                                  </span>
-                                  <p className={`text-sm font-medium truncate flex-1 ${isDone ? 'line-through text-neutral-400' : 'text-ink'}`}>
-                                    {item.text}
+                          <div className="mt-3 pt-3 border-t border-border space-y-3">
+                            {dayGroups.length === 0 ? (
+                              <p className="text-[11px] font-bold text-neutral-400">Sem marcações nesta categoria.</p>
+                            ) : (
+                              dayGroups.map((group) => (
+                                <div key={`${categoryCard.category}-${group.dayKey}`} className="space-y-1.5">
+                                  <p className="text-[12px] font-black text-neutral-600">
+                                    Dia {format(group.dayDate, 'd')}:
                                   </p>
-                                  {isDone ? (
-                                    <CheckCircle2 size={14} className="text-green-600" />
-                                  ) : (
-                                    <Circle size={14} className="text-neutral-300" />
-                                  )}
+                                  <div className="space-y-1.5">
+                                    {group.entries.map((entry) => (
+                                      <div key={`${entry.item.id}-${group.dayKey}`} className="flex items-start gap-2">
+                                        {entry.isDone ? (
+                                          <CheckCircle2 size={13} className="text-green-600 mt-0.5 flex-shrink-0" />
+                                        ) : (
+                                          <Circle size={13} className="text-neutral-300 mt-0.5 flex-shrink-0" />
+                                        )}
+                                        <p
+                                          className={`text-sm break-words ${entry.isDone ? 'line-through text-neutral-400' : 'text-ink'}`}
+                                        >
+                                          - {entry.item.text}
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
-                              );
-                            })}
+                              ))
+                            )}
                           </div>
-
-                          {categoryCard.items.length > 4 && (
-                            <p className="mt-3 text-[10px] font-bold uppercase tracking-widest text-neutral-400">
-                              +{categoryCard.items.length - 4} compromisso(s)
-                            </p>
-                          )}
                         </div>
                       );
                     })}
