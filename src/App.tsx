@@ -23,7 +23,11 @@ import {
   Zap,
   Camera,
   X,
-  Image as ImageIcon
+  Image as ImageIcon,
+  LayoutGrid,
+  Download,
+  Upload,
+  Settings
 } from 'lucide-react';
 import { 
   format, 
@@ -77,9 +81,11 @@ export default function App() {
   const [selectedRecurrence, setSelectedRecurrence] = useState<RecurrenceType>('none');
   const [selectedDate, setSelectedDate] = useState<Date>(startOfToday());
   const [selectedTime, setSelectedTime] = useState(format(new Date(), 'HH:mm'));
-  const [activeTab, setActiveTab ] = useState<'list' | 'calendar'>('list');
+  const [activeTab, setActiveTab ] = useState<'list' | 'visual' | 'calendar'>('list');
+  const [visualScope, setVisualScope] = useState<'day' | 'week' | 'all'>('day');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Edit/Delete Modals Mode
   const [editingItem, setEditingItem] = useState<AgendaItem | null>(null);
@@ -92,17 +98,64 @@ export default function App() {
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
+  const settingsRef = useRef<HTMLDivElement>(null);
 
   // Load data on mount
   useEffect(() => {
-    const savedItems = storage.getItems();
-    const savedCats = storage.getCategories();
-    setItems(savedItems);
-    setCategories(savedCats);
-    if (savedCats.length > 0) {
-      setSelectedCategory(savedCats[0]);
-    }
+    let isMounted = true;
+
+    const loadData = async () => {
+      try {
+        const [savedItems, savedCats] = await Promise.all([
+          storage.getItems(),
+          Promise.resolve(storage.getCategories()),
+        ]);
+
+        if (!isMounted) return;
+        setItems(savedItems);
+        setCategories(savedCats);
+        if (savedCats.length > 0) {
+          setSelectedCategory(savedCats[0]);
+        }
+      } catch {
+        if (!isMounted) return;
+        alert('Nao foi possivel carregar os dados salvos neste dispositivo.');
+      }
+    };
+
+    void loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+
+    const closeOnOutsideClick = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+      if (settingsRef.current && !settingsRef.current.contains(target)) {
+        setIsSettingsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('touchstart', closeOnOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('touchstart', closeOnOutsideClick);
+    };
+  }, [isSettingsOpen]);
+
+  const saveItemsSafely = async (nextItems: AgendaItem[]) => {
+    try {
+      await storage.saveItems(nextItems);
+    } catch {
+      alert('Falha ao salvar. Faça um backup agora para evitar perdas.');
+    }
+  };
 
   const handleAddCategory = () => {
     if (!newCategoryName.trim()) return;
@@ -121,47 +174,135 @@ export default function App() {
     setIsAddingCategory(false);
   };
 
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve) => {
+  const handleExportBackup = () => {
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      items,
+      categories,
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const objectUrl = URL.createObjectURL(blob);
+    const filename = `agenda-mental-backup-${format(new Date(), 'yyyy-MM-dd_HH-mm')}.json`;
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(objectUrl);
+  };
+
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as { items?: unknown; categories?: unknown };
+
+      if (!Array.isArray(parsed.items) || !Array.isArray(parsed.categories)) {
+        throw new Error('Arquivo invalido');
+      }
+
+      const importedItems = (parsed.items as unknown[])
+        .filter((value): value is AgendaItem => {
+          if (!value || typeof value !== 'object') return false;
+          const item = value as Partial<AgendaItem>;
+          return (
+            typeof item.id === 'string' &&
+            typeof item.text === 'string' &&
+            typeof item.timestamp === 'number' &&
+            typeof item.category === 'string' &&
+            typeof item.recurrence === 'string' &&
+            Array.isArray(item.completedDates)
+          );
+        })
+        .map((item) => ({ ...item, completedDates: item.completedDates || [] }));
+      const importedCategories = parsed.categories.filter(
+        (value): value is string => typeof value === 'string'
+      );
+
+      setItems(importedItems);
+      setCategories(importedCategories);
+      setSelectedCategory(importedCategories[0] || '');
+      setFilterCategory('Tudo');
+      storage.saveCategories(importedCategories);
+      await saveItemsSafely(importedItems);
+    } catch {
+      alert('Backup invalido. Selecione um arquivo JSON gerado pelo sistema.');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve) => {
       const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string) || '');
+      reader.onerror = () => resolve('');
       reader.readAsDataURL(file);
-      reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target?.result as string;
-        img.onload = () => {
+    });
+
+  const compressImage = async (file: File): Promise<string> => {
+    const sourceDataUrl = await readFileAsDataUrl(file);
+    if (!sourceDataUrl) {
+      throw new Error('Arquivo de imagem invalido');
+    }
+
+    // Em alguns celulares (HEIC/HEIF) o canvas pode falhar. Nesses casos, usa a imagem original.
+    if (file.type.includes('heic') || file.type.includes('heif')) {
+      return sourceDataUrl;
+    }
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 400;
-          const MAX_HEIGHT = 400;
+          const MAX_WIDTH = 380;
+          const MAX_HEIGHT = 380;
           let width = img.width;
           let height = img.height;
 
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
+          if (width > height && width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          } else if (height >= width && height > MAX_HEIGHT) {
+            width = Math.round((width * MAX_HEIGHT) / height);
+            height = MAX_HEIGHT;
           }
 
           canvas.width = width;
           canvas.height = height;
           const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.7));
-        };
+          if (!ctx) {
+            resolve(sourceDataUrl);
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.65));
+        } catch {
+          resolve(sourceDataUrl);
+        }
       };
+
+      img.onerror = () => resolve(sourceDataUrl);
+      img.src = sourceDataUrl;
     });
   };
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
+    if (!file) return;
+
+    try {
       const compressed = await compressImage(file);
       setPendingImage(compressed);
+    } catch {
+      alert('Nao foi possivel processar essa imagem no celular. Tente outra foto.');
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -198,7 +339,7 @@ export default function App() {
 
     const newItems = [...items, newItem];
     setItems(newItems);
-    storage.saveItems(newItems);
+    void saveItemsSafely(newItems);
     setInputText('');
     setPendingImage(null);
     // Reinicia o tempo para o momento atual para o próximo item
@@ -218,7 +359,7 @@ export default function App() {
       return item;
     });
     setItems(newItems);
-    storage.saveItems(newItems);
+    void saveItemsSafely(newItems);
   };
 
   const deleteItem = (id: string, all: boolean = true) => {
@@ -227,7 +368,7 @@ export default function App() {
     if (all) {
       const newItems = items.filter(item => item.id !== id);
       setItems(newItems);
-      storage.saveItems(newItems);
+      void saveItemsSafely(newItems);
     } else {
       const newItems = items.map(item => {
         if (item.id === id) {
@@ -237,7 +378,7 @@ export default function App() {
         return item;
       });
       setItems(newItems);
-      storage.saveItems(newItems);
+      void saveItemsSafely(newItems);
     }
     setDeletingItem(null);
   };
@@ -263,7 +404,7 @@ export default function App() {
     });
 
     setItems(newItems);
-    storage.saveItems(newItems);
+    void saveItemsSafely(newItems);
     setEditingItem(null);
   };
 
@@ -315,6 +456,94 @@ export default function App() {
       return matchesDate && matchesCategory;
     }).sort((a, b) => b.timestamp - a.timestamp);
   }, [items, selectedDate, filterCategory]);
+
+  const selectedDateKey = useMemo(
+    () => format(selectedDate, 'yyyy-MM-dd'),
+    [selectedDate]
+  );
+
+  const visualWeekRange = useMemo(() => {
+    const start = startOfWeek(selectedDate, { weekStartsOn: 1 });
+    const end = endOfWeek(selectedDate, { weekStartsOn: 1 });
+    const days = eachDayOfInterval({ start, end });
+    return {
+      start,
+      end,
+      days,
+      startKey: format(start, 'yyyy-MM-dd'),
+      endKey: format(end, 'yyyy-MM-dd'),
+    };
+  }, [selectedDate]);
+
+  const visualItems = useMemo(() => {
+    return items.filter((item) => {
+      const matchesCategory = filterCategory === 'Tudo' || item.category === filterCategory;
+      if (!matchesCategory) return false;
+
+      if (visualScope === 'all') return true;
+      if (visualScope === 'day') return checkItemVisibility(item, selectedDate);
+      return visualWeekRange.days.some((day) => checkItemVisibility(item, day));
+    }).sort((a, b) => a.timestamp - b.timestamp);
+  }, [items, filterCategory, visualScope, selectedDate, visualWeekRange.days]);
+
+  const isItemDoneInVisualScope = (item: AgendaItem): boolean => {
+    const completedDates = item.completedDates || [];
+
+    if (visualScope === 'all') {
+      return completedDates.length > 0;
+    }
+
+    if (visualScope === 'week') {
+      return completedDates.some((date) => (
+        date >= visualWeekRange.startKey && date <= visualWeekRange.endKey
+      ));
+    }
+
+    return completedDates.includes(selectedDateKey);
+  };
+
+  const visualSummary = useMemo(() => {
+    const groupedByCategory: Record<string, AgendaItem[]> = {};
+    let completed = 0;
+
+    for (const item of visualItems) {
+      if (isItemDoneInVisualScope(item)) {
+        completed += 1;
+      }
+
+      if (!groupedByCategory[item.category]) {
+        groupedByCategory[item.category] = [];
+      }
+      groupedByCategory[item.category].push(item);
+    }
+
+    const categoryCards = Object.entries(groupedByCategory)
+      .map(([category, categoryItems]) => {
+        const doneCount = categoryItems.filter((item) =>
+          isItemDoneInVisualScope(item)
+        ).length;
+
+        return {
+          category,
+          items: categoryItems,
+          doneCount,
+          total: categoryItems.length,
+        };
+      })
+      .sort((a, b) => b.total - a.total || a.category.localeCompare(b.category, 'pt-BR'));
+
+    return {
+      total: visualItems.length,
+      completed,
+      pending: visualItems.length - completed,
+      categoryCards,
+    };
+  }, [visualItems, visualScope, selectedDateKey, visualWeekRange.startKey, visualWeekRange.endKey]);
+
+  const handleCategoryFilterSelect = (category: string) => {
+    setSelectedCategory(category);
+    setFilterCategory((prev) => (prev === category ? 'Tudo' : category));
+  };
 
   const hasItemsOnDay = (date: Date) => {
     return items.some(item => checkItemVisibility(item, date));
@@ -372,8 +601,7 @@ export default function App() {
                         type="file" 
                         ref={fileInputRef} 
                         onChange={handleImageChange} 
-                        accept="image/*" 
-                        capture="environment"
+                        accept="image/*,image/heic,image/heif,image/jpeg,image/png,image/webp"
                         className="hidden" 
                       />
                     </div>
@@ -420,10 +648,7 @@ export default function App() {
               {categories.map((cat) => (
                 <div key={cat} className="group flex items-center gap-1">
                   <button
-                    onClick={() => {
-                      setFilterCategory(cat);
-                      setSelectedCategory(cat);
-                    }}
+                    onClick={() => handleCategoryFilterSelect(cat)}
                     className={`text-[12px] font-bold uppercase tracking-widest whitespace-nowrap transition-all border-b-2 pb-1 ${
                       filterCategory === cat 
                       ? 'text-ink border-highlight' 
@@ -504,128 +729,333 @@ export default function App() {
 
       <main className="flex-grow overflow-y-auto no-scrollbar">
         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-0.5 bg-border min-h-full pb-24 lg:pb-0">
-          {/* Main List */}
+          {/* Main Content */}
         <section className={`bg-white p-6 md:p-10 space-y-8 ${activeTab === 'calendar' ? 'hidden lg:block' : 'block'}`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
             <h1 className="text-2xl md:text-4xl font-black tracking-tight text-ink uppercase">
               {format(selectedDate, 'eeee, d', { locale: ptBR })}
             </h1>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-2 md:gap-3">
               <span className="text-[10px] md:text-sm font-bold text-neutral-400 uppercase tracking-widest">
-                {filteredItems.length} Compromissos
+                {activeTab === 'visual' ? visualItems.length : filteredItems.length} Compromissos
               </span>
+
+              <div className="flex items-center border border-border rounded-sm overflow-hidden">
+                <button
+                  onClick={() => setActiveTab('list')}
+                  className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${
+                    activeTab === 'list' ? 'bg-ink text-white' : 'bg-white text-neutral-500 hover:text-ink'
+                  }`}
+                >
+                  <Clock size={12} />
+                  Lista
+                </button>
+                <button
+                  onClick={() => setActiveTab('visual')}
+                  className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${
+                    activeTab === 'visual' ? 'bg-highlight text-white' : 'bg-white text-neutral-500 hover:text-ink'
+                  }`}
+                >
+                  <LayoutGrid size={12} />
+                  Visual
+                </button>
+              </div>
+
+              {filterCategory !== 'Tudo' && (
+                <button
+                  onClick={() => setFilterCategory('Tudo')}
+                  className="px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest border border-border rounded-sm text-neutral-500 hover:text-ink hover:border-ink transition-colors"
+                >
+                  Ver Tudo
+                </button>
+              )}
+
+              <div className="relative" ref={settingsRef}>
+                <button
+                  onClick={() => setIsSettingsOpen((prev) => !prev)}
+                  className={`px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest border rounded-sm transition-colors flex items-center gap-1.5 ${
+                    isSettingsOpen
+                      ? 'border-ink text-ink bg-neutral-50'
+                      : 'border-border text-neutral-500 hover:text-ink hover:border-ink'
+                  }`}
+                  title="Opções"
+                  aria-label="Abrir opções"
+                >
+                  <Settings size={13} />
+                </button>
+
+                {isSettingsOpen && (
+                  <div className="absolute right-0 mt-2 w-44 bg-white border border-border rounded-sm shadow-lg z-40 p-1">
+                    <button
+                      onClick={() => {
+                        handleExportBackup();
+                        setIsSettingsOpen(false);
+                      }}
+                      className="w-full px-3 py-2 text-left text-[11px] font-bold uppercase tracking-widest text-neutral-600 hover:bg-neutral-50 hover:text-ink rounded-sm flex items-center gap-2"
+                    >
+                      <Download size={12} />
+                      Backup
+                    </button>
+                    <button
+                      onClick={() => {
+                        backupInputRef.current?.click();
+                        setIsSettingsOpen(false);
+                      }}
+                      className="w-full px-3 py-2 text-left text-[11px] font-bold uppercase tracking-widest text-neutral-600 hover:bg-neutral-50 hover:text-ink rounded-sm flex items-center gap-2"
+                    >
+                      <Upload size={12} />
+                      Restaurar
+                    </button>
+                  </div>
+                )}
+              </div>
+              <input
+                ref={backupInputRef}
+                type="file"
+                accept="application/json"
+                onChange={handleImportBackup}
+                className="hidden"
+              />
             </div>
           </div>
 
-          <div className="space-y-4">
-            {filteredItems.length === 0 ? (
-              <div className="py-20 md:py-24 text-center border-2 border-dashed border-border rounded-sm">
-                <Clock className="mx-auto mb-4 text-neutral-200" size={40} />
-                <p className="text-neutral-400 font-bold uppercase text-[10px] tracking-widest">Lista vazia</p>
+          {activeTab === 'visual' ? (
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center border border-border rounded-sm overflow-hidden">
+                  <button
+                    onClick={() => setVisualScope('day')}
+                    className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                      visualScope === 'day' ? 'bg-ink text-white' : 'bg-white text-neutral-500 hover:text-ink'
+                    }`}
+                  >
+                    Dia
+                  </button>
+                  <button
+                    onClick={() => setVisualScope('week')}
+                    className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                      visualScope === 'week' ? 'bg-ink text-white' : 'bg-white text-neutral-500 hover:text-ink'
+                    }`}
+                  >
+                    Semana
+                  </button>
+                  <button
+                    onClick={() => setVisualScope('all')}
+                    className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                      visualScope === 'all' ? 'bg-ink text-white' : 'bg-white text-neutral-500 hover:text-ink'
+                    }`}
+                  >
+                    Todos
+                  </button>
+                </div>
+
+                {visualScope === 'week' && (
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-500">
+                    {format(visualWeekRange.start, 'd MMM', { locale: ptBR })} a {format(visualWeekRange.end, 'd MMM', { locale: ptBR })}
+                  </span>
+                )}
               </div>
-            ) : (
-              <AnimatePresence mode="popLayout" initial={false}>
-                {filteredItems.map((item) => {
-                  const isDone = item.completedDates?.includes(format(selectedDate, 'yyyy-MM-dd'));
-                  return (
-                    <motion.div
-                      key={item.id}
-                      layout
-                      initial={{ opacity: 0, scale: 0.98 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.98 }}
-                      className={`flex flex-col md:grid md:grid-cols-[80px_1fr_120px] items-start md:items-center p-4 md:p-5 border border-border rounded-sm transition-all gap-3 md:gap-4 ${isDone ? 'opacity-40 grayscale' : 'bg-white hover:bg-neutral-50 shadow-sm md:shadow-none'}`}
-                      style={!isDone ? { borderLeft: `4px solid ${CATEGORY_STYLES[item.category] || '#343A40'}` } : {}}
-                    >
-                      <div className="flex items-center justify-between w-full md:w-auto">
-                        <span className="text-sm font-black text-highlight tabular-nums">
-                          {format(item.timestamp, 'HH:mm')}
-                        </span>
-                        <div className="md:hidden text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
-                          {item.category}
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-3 w-full">
-                        <button 
-                          onClick={() => toggleDone(item.id)}
-                          className={`flex-shrink-0 w-6 h-6 border-2 border-ink rounded-sm flex items-center justify-center transition-colors ${isDone ? 'bg-ink' : 'bg-transparent'}`}
+
+              {visualItems.length === 0 ? (
+                <div className="py-20 md:py-24 text-center border-2 border-dashed border-border rounded-sm">
+                  <LayoutGrid className="mx-auto mb-4 text-neutral-200" size={40} />
+                  <p className="text-neutral-400 font-bold uppercase text-[10px] tracking-widest">Sem itens para visualizar</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="p-4 border border-border rounded-sm bg-neutral-50">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">Total</p>
+                      <p className="text-2xl font-black text-ink">{visualSummary.total}</p>
+                    </div>
+                    <div className="p-4 border border-border rounded-sm bg-neutral-50">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">Pendentes</p>
+                      <p className="text-2xl font-black text-ink">{visualSummary.pending}</p>
+                    </div>
+                    <div className="p-4 border border-border rounded-sm bg-neutral-50">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">Concluídos</p>
+                      <p className="text-2xl font-black text-green-600">{visualSummary.completed}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    {visualSummary.categoryCards.map((categoryCard) => {
+                      const completionRate = categoryCard.total > 0
+                        ? Math.round((categoryCard.doneCount / categoryCard.total) * 100)
+                        : 0;
+
+                      return (
+                        <div
+                          key={categoryCard.category}
+                          className="p-4 border border-border rounded-sm bg-white shadow-sm"
+                          style={{ borderLeft: `4px solid ${CATEGORY_STYLES[categoryCard.category] || '#343A40'}` }}
                         >
-                          {isDone && <CheckCircle2 size={16} className="text-white" />}
-                        </button>
-                        
-                        {item.image && (
-                          <div 
-                            className="relative group flex-shrink-0 cursor-zoom-in"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setViewingImage(item.image!);
-                            }}
-                          >
-                            <img 
-                              src={item.image} 
-                              className={`w-12 h-12 md:w-16 md:h-16 object-cover rounded-sm border-2 border-ink transition-all ${isDone ? 'grayscale opacity-50' : ''}`}
-                              referrerPolicy="no-referrer"
-                            />
-                            {/* Expand icon purely decorational or for future full-screen view */}
-                            <div className="absolute inset-0 bg-ink/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity rounded-sm">
-                              <ImageIcon size={14} className="text-white" />
+                          <div className="flex items-center justify-between gap-3 mb-3">
+                            <div>
+                              <p className="text-sm font-black uppercase tracking-wider text-ink">
+                                {categoryCard.category || 'Sem categoria'}
+                              </p>
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
+                                {categoryCard.doneCount}/{categoryCard.total} concluídos
+                              </p>
                             </div>
+                            <span className="text-xs font-black text-highlight">{completionRate}%</span>
                           </div>
-                        )}
 
-                        <p className={`text-base font-medium break-words overflow-hidden ${isDone ? 'line-through' : 'text-ink'}`}>
-                          {item.text}
-                        </p>
-                      </div>
-
-                      <div className="text-right w-full md:w-auto space-y-1 mt-2 md:mt-0 flex md:flex-col items-center md:items-end justify-between md:justify-end">
-                        <div className="hidden md:block text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
-                          {item.category}
-                        </div>
-                        {item.recurrence !== 'none' && (
-                          <div className="text-[9px] font-bold text-highlight uppercase tracking-[0.2em] flex items-center justify-end gap-1">
-                            <Repeat size={10} />
-                            {RECURRENCE_OPTIONS.find(o => o.value === item.recurrence)?.label}
+                          <div className="h-2 bg-neutral-100 rounded-full mb-4 overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${completionRate}%`,
+                                backgroundColor: CATEGORY_STYLES[categoryCard.category] || '#343A40',
+                              }}
+                            />
                           </div>
-                        )}
-                        <div className="flex md:flex-col items-center md:items-end justify-between md:justify-end gap-2 mt-2 md:mt-0">
-                          <button 
-                            onClick={() => {
-                              setEditingItem(item);
-                              setEditText(item.text);
-                              setEditCategory(item.category);
-                              setEditRecurrence(item.recurrence);
-                              setEditTime(format(item.timestamp, 'HH:mm'));
-                            }}
-                            className="text-highlight hover:underline text-[10px] font-bold uppercase transition-colors"
-                          >
-                            Editar
-                          </button>
-                          <button 
-                            onClick={() => {
-                              if (item.recurrence === 'none') {
-                                deleteItem(item.id, true);
-                              } else {
-                                setDeletingItem(item);
-                              }
-                            }}
-                            className="text-red-500 hover:text-red-700 text-[10px] font-bold uppercase transition-colors"
-                          >
-                            Excluir
-                          </button>
+
+                          <div className="space-y-2">
+                            {categoryCard.items.slice(0, 4).map((item) => {
+                              const isDone = isItemDoneInVisualScope(item);
+                              return (
+                                <div key={item.id} className="flex items-center gap-2.5 p-2 border border-border rounded-sm">
+                                  <span className="text-[11px] font-black text-highlight tabular-nums min-w-[42px]">
+                                    {format(item.timestamp, 'HH:mm')}
+                                  </span>
+                                  <p className={`text-sm font-medium truncate flex-1 ${isDone ? 'line-through text-neutral-400' : 'text-ink'}`}>
+                                    {item.text}
+                                  </p>
+                                  {isDone ? (
+                                    <CheckCircle2 size={14} className="text-green-600" />
+                                  ) : (
+                                    <Circle size={14} className="text-neutral-300" />
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {categoryCard.items.length > 4 && (
+                            <p className="mt-3 text-[10px] font-bold uppercase tracking-widest text-neutral-400">
+                              +{categoryCard.items.length - 4} compromisso(s)
+                            </p>
+                          )}
                         </div>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            )}
-          </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredItems.length === 0 ? (
+                <div className="py-20 md:py-24 text-center border-2 border-dashed border-border rounded-sm">
+                  <Clock className="mx-auto mb-4 text-neutral-200" size={40} />
+                  <p className="text-neutral-400 font-bold uppercase text-[10px] tracking-widest">Lista vazia</p>
+                </div>
+              ) : (
+                <AnimatePresence mode="popLayout" initial={false}>
+                  {filteredItems.map((item) => {
+                    const isDone = item.completedDates?.includes(selectedDateKey);
+                    return (
+                      <motion.div
+                        key={item.id}
+                        layout
+                        initial={{ opacity: 0, scale: 0.98 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.98 }}
+                        className={`flex flex-col md:grid md:grid-cols-[80px_1fr_120px] items-start md:items-center p-4 md:p-5 border border-border rounded-sm transition-all gap-3 md:gap-4 ${isDone ? 'opacity-40 grayscale' : 'bg-white hover:bg-neutral-50 shadow-sm md:shadow-none'}`}
+                        style={!isDone ? { borderLeft: `4px solid ${CATEGORY_STYLES[item.category] || '#343A40'}` } : {}}
+                      >
+                        <div className="flex items-center justify-between w-full md:w-auto">
+                          <span className="text-sm font-black text-highlight tabular-nums">
+                            {format(item.timestamp, 'HH:mm')}
+                          </span>
+                          <div className="md:hidden text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
+                            {item.category}
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-3 w-full">
+                          <button 
+                            onClick={() => toggleDone(item.id)}
+                            className={`flex-shrink-0 w-6 h-6 border-2 border-ink rounded-sm flex items-center justify-center transition-colors ${isDone ? 'bg-ink' : 'bg-transparent'}`}
+                          >
+                            {isDone && <CheckCircle2 size={16} className="text-white" />}
+                          </button>
+                          
+                          {item.image && (
+                            <div 
+                              className="relative group flex-shrink-0 cursor-zoom-in"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setViewingImage(item.image!);
+                              }}
+                            >
+                              <img 
+                                src={item.image} 
+                                className={`w-12 h-12 md:w-16 md:h-16 object-cover rounded-sm border-2 border-ink transition-all ${isDone ? 'grayscale opacity-50' : ''}`}
+                                referrerPolicy="no-referrer"
+                              />
+                              {/* Expand icon purely decorational or for future full-screen view */}
+                              <div className="absolute inset-0 bg-ink/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity rounded-sm">
+                                <ImageIcon size={14} className="text-white" />
+                              </div>
+                            </div>
+                          )}
+
+                          <p className={`text-base font-medium break-words overflow-hidden ${isDone ? 'line-through' : 'text-ink'}`}>
+                            {item.text}
+                          </p>
+                        </div>
+
+                        <div className="text-right w-full md:w-auto space-y-1 mt-2 md:mt-0 flex md:flex-col items-center md:items-end justify-between md:justify-end">
+                          <div className="hidden md:block text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
+                            {item.category}
+                          </div>
+                          {item.recurrence !== 'none' && (
+                            <div className="text-[9px] font-bold text-highlight uppercase tracking-[0.2em] flex items-center justify-end gap-1">
+                              <Repeat size={10} />
+                              {RECURRENCE_OPTIONS.find(o => o.value === item.recurrence)?.label}
+                            </div>
+                          )}
+                          <div className="flex md:flex-col items-center md:items-end justify-between md:justify-end gap-2 mt-2 md:mt-0">
+                            <button 
+                              onClick={() => {
+                                setEditingItem(item);
+                                setEditText(item.text);
+                                setEditCategory(item.category);
+                                setEditRecurrence(item.recurrence);
+                                setEditTime(format(item.timestamp, 'HH:mm'));
+                              }}
+                              className="text-highlight hover:underline text-[10px] font-bold uppercase transition-colors"
+                            >
+                              Editar
+                            </button>
+                            <button 
+                              onClick={() => {
+                                if (item.recurrence === 'none') {
+                                  deleteItem(item.id, true);
+                                } else {
+                                  setDeletingItem(item);
+                                }
+                              }}
+                              className="text-red-500 hover:text-red-700 text-[10px] font-bold uppercase transition-colors"
+                            >
+                              Excluir
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              )}
+            </div>
+          )}
         </section>
 
         {/* Side Panel / Mobile Calendar Tab */}
-        <aside className={`bg-[#F1F3F5] p-6 md:p-10 flex flex-col gap-10 ${activeTab === 'list' ? 'hidden lg:flex' : 'flex'}`}>
+        <aside className={`bg-[#F1F3F5] p-6 md:p-10 flex-col gap-10 ${activeTab === 'calendar' ? 'flex' : 'hidden'} lg:flex`}>
           <div className="bg-white border border-border p-5 rounded-sm shadow-sm space-y-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xs font-black uppercase tracking-[0.2em] text-neutral-500">
@@ -698,13 +1128,20 @@ export default function App() {
       </main>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-ink p-3 grid grid-cols-2 lg:hidden z-40">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-ink p-3 grid grid-cols-3 lg:hidden z-40">
         <button 
           onClick={() => setActiveTab('list')}
           className={`flex flex-col items-center justify-center py-2 gap-1 transition-all ${activeTab === 'list' ? 'text-highlight' : 'text-neutral-400'}`}
         >
           <Clock size={20} className={activeTab === 'list' ? 'fill-highlight/10' : ''} />
           <span className="text-[10px] font-black uppercase tracking-widest">Agenda</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('visual')}
+          className={`flex flex-col items-center justify-center py-2 gap-1 transition-all ${activeTab === 'visual' ? 'text-highlight' : 'text-neutral-400'}`}
+        >
+          <LayoutGrid size={20} className={activeTab === 'visual' ? 'fill-highlight/10' : ''} />
+          <span className="text-[10px] font-black uppercase tracking-widest">Visual</span>
         </button>
         <button 
           onClick={() => setActiveTab('calendar')}
