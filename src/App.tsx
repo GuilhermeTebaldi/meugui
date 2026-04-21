@@ -316,6 +316,7 @@ export default function App() {
 
   const handleAddItem = (isSpecificDay: boolean = false) => {
     if (!inputText.trim()) return;
+    if (!isSpecificDay && !isToday(selectedDate)) return;
 
     let finalTimestamp = Date.now();
     
@@ -615,6 +616,13 @@ export default function App() {
     return items.some(item => checkItemVisibility(item, date));
   };
 
+  const hasCompletedItemsOnDay = (date: Date) => {
+    const dayKey = format(date, 'yyyy-MM-dd');
+    return items.some((item) => item.completedDates?.includes(dayKey));
+  };
+
+  const isSelectedDateToday = isToday(selectedDate);
+
   // Calendar rendering helpers
   const monthDays = useMemo(() => {
     const start = startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 0 });
@@ -675,7 +683,13 @@ export default function App() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleAddItem(false)}
-                      className="flex-1 md:flex-none h-[50px] md:h-[60px] px-4 md:px-6 bg-ink text-white font-bold uppercase tracking-wider text-[11px] md:text-[13px] rounded-sm transition-all active:scale-95 border-2 border-ink"
+                      disabled={!isSelectedDateToday}
+                      className={`flex-1 md:flex-none h-[50px] md:h-[60px] px-4 md:px-6 font-bold uppercase tracking-wider text-[11px] md:text-[13px] rounded-sm border-2 transition-all ${
+                        isSelectedDateToday
+                          ? 'bg-ink text-white border-ink active:scale-95'
+                          : 'bg-neutral-100 text-neutral-300 border-neutral-200 cursor-not-allowed'
+                      }`}
+                      title={isSelectedDateToday ? 'Registrar agora' : 'O botão Agora só funciona no dia atual'}
                     >
                       Agora
                     </button>
@@ -1146,6 +1160,8 @@ export default function App() {
               {monthDays.map((date) => {
                 const isSelected = isSameDay(date, selectedDate);
                 const hasItems = hasItemsOnDay(date);
+                const hasCompleted = hasCompletedItemsOnDay(date);
+                const isCurrentDay = isToday(date);
                 const isCurrentMonth = isSameDay(startOfMonth(date), startOfMonth(currentMonth));
                 
                 return (
@@ -1155,7 +1171,7 @@ export default function App() {
                       setSelectedDate(date);
                       if (window.innerWidth < 1024) setActiveTab('list');
                     }}
-                    className={`aspect-square flex items-center justify-center text-[11px] font-bold rounded-sm transition-all border ${
+                    className={`aspect-square relative flex items-center justify-center text-[11px] font-bold rounded-sm transition-all border ${
                       isSelected 
                         ? 'bg-ink text-white border-ink' 
                         : hasItems 
@@ -1163,7 +1179,25 @@ export default function App() {
                           : 'border-transparent text-ink hover:border-neutral-200'
                     } ${!isCurrentMonth ? 'opacity-20' : ''}`}
                   >
-                    {format(date, 'd')}
+                    {isCurrentDay && (
+                      <span
+                        className={`absolute inset-0 flex items-center justify-center text-[26px] font-black leading-none pointer-events-none ${
+                          isSelected ? 'text-white/35' : 'text-ink/30'
+                        }`}
+                        title="Dia atual"
+                      >
+                        X
+                      </span>
+                    )}
+                    <span className="relative z-10">{format(date, 'd')}</span>
+                    {hasCompleted && (
+                      <span className="absolute bottom-1 left-1/2 -translate-x-1/2 flex items-center gap-1 z-10">
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-green-300' : 'bg-green-600'}`}
+                          title="Tarefas concluídas neste dia"
+                        />
+                      </span>
+                    )}
                   </button>
                 );
               })}
