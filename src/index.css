@@ -26,9 +26,9 @@
   }
 }
 
-/* Prevent iOS Safari auto-zoom when focusing small form controls. */
-@media (max-width: 1024px) {
-  input,
+/* Prevent mobile browsers from auto-zooming on form focus. */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
   textarea,
   select {
     font-size: 16px !important;
