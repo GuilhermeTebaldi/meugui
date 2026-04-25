@@ -28,3 +28,8 @@ export interface AgendaItem {
 export interface UserPreferences {
   categories: string[];
 }
+
+export interface NotesData {
+  content: string;
+  updatedAt: number | null;
+}

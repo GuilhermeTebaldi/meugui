@@ -25,6 +25,7 @@ import {
   X,
   Image as ImageIcon,
   LayoutGrid,
+  FileText,
   Download,
   Upload,
   Settings
@@ -81,11 +82,13 @@ export default function App() {
   const [selectedRecurrence, setSelectedRecurrence] = useState<RecurrenceType>('none');
   const [selectedDate, setSelectedDate] = useState<Date>(startOfToday());
   const [selectedTime, setSelectedTime] = useState(format(new Date(), 'HH:mm'));
-  const [activeTab, setActiveTab ] = useState<'list' | 'visual' | 'calendar'>('list');
+  const [activeTab, setActiveTab ] = useState<'list' | 'visual' | 'calendar' | 'notes'>('list');
   const [visualScope, setVisualScope] = useState<'day' | 'week' | 'all'>('day');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [notesUpdatedAt, setNotesUpdatedAt] = useState<number | null>(null);
 
   // Edit/Delete Modals Mode
   const [editingItem, setEditingItem] = useState<AgendaItem | null>(null);
@@ -107,14 +110,17 @@ export default function App() {
 
     const loadData = async () => {
       try {
-        const [savedItems, savedCats] = await Promise.all([
+        const [savedItems, savedCats, savedNotes] = await Promise.all([
           storage.getItems(),
           Promise.resolve(storage.getCategories()),
+          Promise.resolve(storage.getNotes()),
         ]);
 
         if (!isMounted) return;
         setItems(savedItems);
         setCategories(savedCats);
+        setNotes(savedNotes.content);
+        setNotesUpdatedAt(savedNotes.updatedAt);
         if (savedCats.length > 0) {
           setSelectedCategory(savedCats[0]);
         }
@@ -157,6 +163,20 @@ export default function App() {
     }
   };
 
+  const handleNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const nextContent = e.target.value;
+    const nextUpdatedAt = nextContent.trim() ? Date.now() : null;
+
+    setNotes(nextContent);
+    setNotesUpdatedAt(nextUpdatedAt);
+
+    try {
+      storage.saveNotes({ content: nextContent, updatedAt: nextUpdatedAt });
+    } catch {
+      alert('Nao foi possivel salvar o bloco de notas neste dispositivo.');
+    }
+  };
+
   const handleAddCategory = () => {
     if (!newCategoryName.trim()) return;
     if (categories.includes(newCategoryName.trim())) {
@@ -176,10 +196,14 @@ export default function App() {
 
   const handleExportBackup = () => {
     const payload = {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       items,
       categories,
+      notes: {
+        content: notes,
+        updatedAt: notesUpdatedAt,
+      },
     };
 
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -198,7 +222,7 @@ export default function App() {
 
     try {
       const text = await file.text();
-      const parsed = JSON.parse(text) as { items?: unknown; categories?: unknown };
+      const parsed = JSON.parse(text) as { items?: unknown; categories?: unknown; notes?: unknown };
 
       if (!Array.isArray(parsed.items) || !Array.isArray(parsed.categories)) {
         throw new Error('Arquivo invalido');
@@ -221,12 +245,35 @@ export default function App() {
       const importedCategories = parsed.categories.filter(
         (value): value is string => typeof value === 'string'
       );
+      const importedNotes = (() => {
+        if (typeof parsed.notes === 'string') {
+          return {
+            content: parsed.notes,
+            updatedAt: parsed.notes.trim() ? Date.now() : null,
+          };
+        }
+
+        if (!parsed.notes || typeof parsed.notes !== 'object') {
+          return { content: '', updatedAt: null as number | null };
+        }
+
+        const notesRecord = parsed.notes as { content?: unknown; updatedAt?: unknown };
+        const content = typeof notesRecord.content === 'string' ? notesRecord.content : '';
+        const updatedAt = typeof notesRecord.updatedAt === 'number' && Number.isFinite(notesRecord.updatedAt)
+          ? notesRecord.updatedAt
+          : (content.trim() ? Date.now() : null);
+
+        return { content, updatedAt };
+      })();
 
       setItems(importedItems);
       setCategories(importedCategories);
       setSelectedCategory(importedCategories[0] || '');
       setFilterCategory('Tudo');
+      setNotes(importedNotes.content);
+      setNotesUpdatedAt(importedNotes.updatedAt);
       storage.saveCategories(importedCategories);
+      storage.saveNotes(importedNotes);
       await saveItemsSafely(importedItems);
     } catch {
       alert('Backup invalido. Selecione um arquivo JSON gerado pelo sistema.');
@@ -808,16 +855,18 @@ export default function App() {
       </header>
 
       <main className="flex-grow overflow-y-auto no-scrollbar">
-        <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-0.5 bg-border min-h-full pb-24 lg:pb-0">
+        <div className={`max-w-6xl mx-auto min-h-full pb-24 lg:pb-0 ${activeTab === 'notes' ? '' : 'grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-0.5 bg-border'}`}>
           {/* Main Content */}
         <section className={`bg-white p-6 md:p-10 space-y-8 ${activeTab === 'calendar' ? 'hidden lg:block' : 'block'}`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
             <h1 className="text-2xl md:text-4xl font-black tracking-tight text-ink uppercase">
-              {format(selectedDate, 'eeee, d', { locale: ptBR })}
+              {activeTab === 'notes' ? 'Bloco de Notas' : format(selectedDate, 'eeee, d', { locale: ptBR })}
             </h1>
             <div className="flex flex-wrap items-center gap-2 md:gap-3">
               <span className="text-[10px] md:text-sm font-bold text-neutral-400 uppercase tracking-widest">
-                {activeTab === 'visual' ? visualItems.length : filteredItems.length} Compromissos
+                {activeTab === 'notes'
+                  ? 'Notas privadas'
+                  : `${activeTab === 'visual' ? visualItems.length : filteredItems.length} Compromissos`}
               </span>
 
               <div className="flex items-center border border-border rounded-sm overflow-hidden">
@@ -839,9 +888,18 @@ export default function App() {
                   <LayoutGrid size={12} />
                   Visual
                 </button>
+                <button
+                  onClick={() => setActiveTab('notes')}
+                  className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${
+                    activeTab === 'notes' ? 'bg-ink text-white' : 'bg-white text-neutral-500 hover:text-ink'
+                  }`}
+                >
+                  <FileText size={12} />
+                  Notas
+                </button>
               </div>
 
-              {filterCategory !== 'Tudo' && (
+              {activeTab !== 'notes' && filterCategory !== 'Tudo' && (
                 <button
                   onClick={() => setFilterCategory('Tudo')}
                   className="px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest border border-border rounded-sm text-neutral-500 hover:text-ink hover:border-ink transition-colors"
@@ -899,7 +957,27 @@ export default function App() {
             </div>
           </div>
 
-          {activeTab === 'visual' ? (
+          {activeTab === 'notes' ? (
+            <div className="flex flex-col gap-4">
+              <p className="text-sm text-neutral-500">
+                Espaço livre para anotações rápidas.
+              </p>
+              <textarea
+                value={notes}
+                onChange={handleNotesChange}
+                placeholder="Escreva suas notas aqui..."
+                className="w-full flex-1 min-h-[62vh] md:min-h-[70vh] resize-y border-2 border-border rounded-sm p-4 md:p-5 text-base leading-relaxed text-ink outline-none focus:border-ink"
+              />
+              <div className="flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-widest text-neutral-400">
+                <span>{notes.length} chars</span>
+                <span className="text-right">
+                  {notesUpdatedAt
+                    ? `Ultima atualizacao: ${format(notesUpdatedAt, 'dd/MM/yyyy HH:mm')}`
+                    : 'Sem atualizacao'}
+                </span>
+              </div>
+            </div>
+          ) : activeTab === 'visual' ? (
             <div className="space-y-5">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center border border-border rounded-sm overflow-hidden">
@@ -1116,13 +1194,7 @@ export default function App() {
                               Editar
                             </button>
                             <button 
-                              onClick={() => {
-                                if (item.recurrence === 'none') {
-                                  deleteItem(item.id, true);
-                                } else {
-                                  setDeletingItem(item);
-                                }
-                              }}
+                              onClick={() => setDeletingItem(item)}
                               className="text-red-500 hover:text-red-700 text-[10px] font-bold uppercase transition-colors"
                             >
                               Excluir
@@ -1139,7 +1211,7 @@ export default function App() {
         </section>
 
         {/* Side Panel / Mobile Calendar Tab */}
-        <aside className={`bg-[#F1F3F5] p-6 md:p-10 flex-col gap-10 ${activeTab === 'calendar' ? 'flex' : 'hidden'} lg:flex`}>
+        <aside className={`bg-[#F1F3F5] p-6 md:p-10 flex-col gap-10 ${activeTab === 'calendar' ? 'flex' : 'hidden'} ${activeTab === 'notes' ? '' : 'lg:flex'}`}>
           <div className="bg-white border border-border p-5 rounded-sm shadow-sm space-y-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xs font-black uppercase tracking-[0.2em] text-neutral-500">
@@ -1232,7 +1304,7 @@ export default function App() {
       </main>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-ink p-3 grid grid-cols-3 lg:hidden z-40">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-ink p-3 grid grid-cols-4 lg:hidden z-40">
         <button 
           onClick={() => setActiveTab('list')}
           className={`flex flex-col items-center justify-center py-2 gap-1 transition-all ${activeTab === 'list' ? 'text-highlight' : 'text-neutral-400'}`}
@@ -1253,6 +1325,13 @@ export default function App() {
         >
           <CalendarDays size={20} className={activeTab === 'calendar' ? 'fill-highlight/10' : ''} />
           <span className="text-[10px] font-black uppercase tracking-widest">Calendário</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('notes')}
+          className={`flex flex-col items-center justify-center py-2 gap-1 transition-all ${activeTab === 'notes' ? 'text-highlight' : 'text-neutral-400'}`}
+        >
+          <FileText size={20} className={activeTab === 'notes' ? 'fill-highlight/10' : ''} />
+          <span className="text-[10px] font-black uppercase tracking-widest">Notas</span>
         </button>
       </nav>
 
@@ -1358,31 +1437,50 @@ export default function App() {
             >
               <h3 className="text-xl font-black uppercase tracking-tighter mb-4 text-red-600">Excluir Compromisso</h3>
               <p className="text-sm font-medium mb-8 text-neutral-600">
-                Este é um compromisso recorrente. Como deseja excluí-lo?
+                {deletingItem.recurrence === 'none'
+                  ? 'Tem certeza que deseja excluir este compromisso?'
+                  : 'Este é um compromisso recorrente. Como deseja excluí-lo?'}
               </p>
 
-              <div className="space-y-3">
-                <button 
-                  onClick={() => deleteItem(deletingItem.id, false)}
-                  className="w-full p-4 border-2 border-ink font-bold uppercase text-[11px] tracking-widest hover:bg-neutral-50 transition-all flex items-center justify-between group"
-                >
-                  <span>Apenas desta data</span>
-                  <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
-                </button>
-                <button 
-                  onClick={() => deleteItem(deletingItem.id, true)}
-                  className="w-full p-4 bg-red-600 text-white border-2 border-ink font-bold uppercase text-[11px] tracking-widest hover:bg-red-700 transition-all flex items-center justify-between group shadow-[4px_4px_0px_#000]"
-                >
-                  <span>Todas as ocorrências</span>
-                  <Trash2 size={16} className="group-hover:scale-110 transition-transform" />
-                </button>
-                <button 
-                  onClick={() => setDeletingItem(null)}
-                  className="w-full p-4 text-neutral-400 font-bold uppercase text-[10px] tracking-widest hover:text-ink transition-colors"
-                >
-                  Cancelar
-                </button>
-              </div>
+              {deletingItem.recurrence === 'none' ? (
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setDeletingItem(null)}
+                    className="flex-1 p-3 border-2 border-ink font-bold uppercase text-sm hover:bg-neutral-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => deleteItem(deletingItem.id, true)}
+                    className="flex-1 p-3 bg-red-600 text-white border-2 border-ink font-bold uppercase text-sm hover:bg-red-700 transition-colors shadow-[4px_4px_0px_#000]"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <button 
+                    onClick={() => deleteItem(deletingItem.id, false)}
+                    className="w-full p-4 border-2 border-ink font-bold uppercase text-[11px] tracking-widest hover:bg-neutral-50 transition-all flex items-center justify-between group"
+                  >
+                    <span>Apenas desta data</span>
+                    <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                  </button>
+                  <button 
+                    onClick={() => deleteItem(deletingItem.id, true)}
+                    className="w-full p-4 bg-red-600 text-white border-2 border-ink font-bold uppercase text-[11px] tracking-widest hover:bg-red-700 transition-all flex items-center justify-between group shadow-[4px_4px_0px_#000]"
+                  >
+                    <span>Todas as ocorrências</span>
+                    <Trash2 size={16} className="group-hover:scale-110 transition-transform" />
+                  </button>
+                  <button 
+                    onClick={() => setDeletingItem(null)}
+                    className="w-full p-4 text-neutral-400 font-bold uppercase text-[10px] tracking-widest hover:text-ink transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
             </motion.div>
           </div>
         )}

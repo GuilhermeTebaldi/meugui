@@ -3,10 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { AgendaItem } from '../types';
+import { AgendaItem, NotesData } from '../types';
 
 const LEGACY_ITEMS_KEY = 'agenda_mental_items';
 const CATEGORIES_KEY = 'agenda_mental_categories';
+const NOTES_KEY = 'agenda_mental_notes';
+const NOTES_UPDATED_AT_KEY = 'agenda_mental_notes_updated_at';
 
 const DB_NAME = 'agenda_mental_db';
 const DB_VERSION = 1;
@@ -162,5 +164,25 @@ export const storage = {
 
   saveCategories: (categories: string[]) => {
     localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
+  },
+
+  getNotes: (): NotesData => {
+    const content = localStorage.getItem(NOTES_KEY) || '';
+    const rawUpdatedAt = localStorage.getItem(NOTES_UPDATED_AT_KEY);
+    const parsedUpdatedAt = rawUpdatedAt ? Number(rawUpdatedAt) : NaN;
+
+    return {
+      content,
+      updatedAt: Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : null,
+    };
+  },
+
+  saveNotes: (notes: NotesData) => {
+    localStorage.setItem(NOTES_KEY, notes.content);
+    if (notes.updatedAt === null) {
+      localStorage.removeItem(NOTES_UPDATED_AT_KEY);
+      return;
+    }
+    localStorage.setItem(NOTES_UPDATED_AT_KEY, String(notes.updatedAt));
   },
 };
