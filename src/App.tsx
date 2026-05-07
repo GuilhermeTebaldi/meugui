@@ -10,6 +10,7 @@ import {
   CheckCircle2, 
   Circle, 
   Clock, 
+  Search,
   ChevronLeft, 
   ChevronRight,
   Briefcase,
@@ -71,6 +72,12 @@ const RECURRENCE_OPTIONS: { label: string; value: RecurrenceType }[] = [
   { label: 'Seg-Sáb', value: 'mon-sat' },
 ];
 
+const normalizeSearchText = (value: string): string =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
 export default function App() {
   const [items, setItems] = useState<AgendaItem[]>([]);
   const [inputText, setInputText] = useState('');
@@ -89,6 +96,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [notes, setNotes] = useState('');
   const [notesUpdatedAt, setNotesUpdatedAt] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Edit/Delete Modals Mode
   const [editingItem, setEditingItem] = useState<AgendaItem | null>(null);
@@ -654,6 +662,100 @@ export default function App() {
     };
   }, [visualItems, visualScope, selectedDateKey, visualWeekRange.startKey, visualWeekRange.endKey]);
 
+  const openAgendaForDate = (date: Date) => {
+    const safeDate = startOfDay(date);
+    setSelectedDate(safeDate);
+    setCurrentMonth(safeDate);
+    setFilterCategory('Tudo');
+    setActiveTab('list');
+  };
+
+  const getItemReferenceDate = (item: AgendaItem): Date => {
+    const fallbackDate = new Date(item.timestamp);
+
+    if (!item.scheduledDate) {
+      return fallbackDate;
+    }
+
+    const parsedDate = parseISO(item.scheduledDate);
+    return Number.isNaN(parsedDate.getTime()) ? fallbackDate : parsedDate;
+  };
+
+  const normalizedSearchQuery = useMemo(
+    () => normalizeSearchText(searchQuery.trim()),
+    [searchQuery]
+  );
+
+  const searchAgendaResults = useMemo(() => {
+    if (!normalizedSearchQuery) return [];
+
+    return items
+      .map((item) => {
+        const referenceDate = getItemReferenceDate(item);
+        const referenceDateKey = format(referenceDate, 'yyyy-MM-dd');
+        const recurrenceLabel = RECURRENCE_OPTIONS.find((option) => option.value === item.recurrence)?.label || '';
+        const isDoneOnReferenceDate = (item.completedDates || []).includes(referenceDateKey);
+        const searchIndex = normalizeSearchText(
+          [
+            item.text,
+            item.category,
+            recurrenceLabel,
+            format(referenceDate, 'dd/MM/yy'),
+            format(item.timestamp, 'HH:mm'),
+            isDoneOnReferenceDate ? 'concluido concluída concluido done' : 'pendente aberta',
+          ].join(' ')
+        );
+
+        if (!searchIndex.includes(normalizedSearchQuery)) {
+          return null;
+        }
+
+        return {
+          id: item.id,
+          text: item.text,
+          category: item.category,
+          recurrenceLabel,
+          isDoneOnReferenceDate,
+          referenceDate,
+          referenceDateLabel: format(referenceDate, 'dd/MM/yy'),
+          timeLabel: format(item.timestamp, 'HH:mm'),
+        };
+      })
+      .filter((result): result is {
+        id: string;
+        text: string;
+        category: string;
+        recurrenceLabel: string;
+        isDoneOnReferenceDate: boolean;
+        referenceDate: Date;
+        referenceDateLabel: string;
+        timeLabel: string;
+      } => result !== null)
+      .sort((a, b) => b.referenceDate.getTime() - a.referenceDate.getTime());
+  }, [items, normalizedSearchQuery]);
+
+  const searchNotesResults = useMemo(() => {
+    if (!normalizedSearchQuery) return [];
+
+    return notes
+      .split(/\r?\n/)
+      .map((line, index) => ({
+        line: line.trim(),
+        lineNumber: index + 1,
+      }))
+      .filter((entry) => entry.line && normalizeSearchText(entry.line).includes(normalizedSearchQuery));
+  }, [notes, normalizedSearchQuery]);
+
+  const visibleAgendaResults = useMemo(
+    () => searchAgendaResults.slice(0, 12),
+    [searchAgendaResults]
+  );
+
+  const visibleNotesResults = useMemo(
+    () => searchNotesResults.slice(0, 12),
+    [searchNotesResults]
+  );
+
   const handleCategoryFilterSelect = (category: string) => {
     setSelectedCategory(category);
     setFilterCategory((prev) => (prev === category ? 'Tudo' : category));
@@ -860,7 +962,7 @@ export default function App() {
         <section className={`bg-white p-6 md:p-10 space-y-8 ${activeTab === 'calendar' ? 'hidden lg:block' : 'block'}`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
             <h1 className="text-2xl md:text-4xl font-black tracking-tight text-ink uppercase">
-              {activeTab === 'notes' ? 'Bloco de Notas' : format(selectedDate, 'eeee, d', { locale: ptBR })}
+              {activeTab === 'notes' ? 'Bloco de Notas' : format(selectedDate, 'eeee, dd/MM/yy', { locale: ptBR })}
             </h1>
             <div className="flex flex-wrap items-center gap-2 md:gap-3">
               <span className="text-[10px] md:text-sm font-bold text-neutral-400 uppercase tracking-widest">
@@ -957,6 +1059,108 @@ export default function App() {
             </div>
           </div>
 
+          <div className="mb-6 space-y-3">
+            <div className="relative">
+              <Search
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"
+                aria-hidden
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Pesquisar anotações e marcações..."
+                className="w-full h-11 pl-10 pr-10 border-2 border-border rounded-sm text-sm font-medium outline-none focus:border-ink"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-ink"
+                  title="Limpar pesquisa"
+                  aria-label="Limpar pesquisa"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+
+            {normalizedSearchQuery && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <div className="border border-border rounded-sm p-3 bg-neutral-50 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Tópico: Marcações</p>
+                    <span className="text-[10px] font-bold text-neutral-400">
+                      {searchAgendaResults.length} resultado(s)
+                    </span>
+                  </div>
+
+                  {visibleAgendaResults.length === 0 ? (
+                    <p className="text-sm text-neutral-400">Nenhuma marcação encontrada.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {visibleAgendaResults.map((result) => (
+                        <button
+                          key={result.id}
+                          onClick={() => openAgendaForDate(result.referenceDate)}
+                          className="w-full text-left p-2 rounded-sm border border-transparent hover:border-border hover:bg-white transition-colors"
+                        >
+                          <p className={`text-sm break-words ${result.isDoneOnReferenceDate ? 'text-neutral-400 line-through' : 'text-ink'}`}>
+                            {result.text}
+                          </p>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 mt-1">
+                            {result.referenceDateLabel} • {result.timeLabel} • {result.category}
+                            {result.recurrenceLabel ? ` • ${result.recurrenceLabel}` : ''}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {searchAgendaResults.length > visibleAgendaResults.length && (
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
+                      Mostrando {visibleAgendaResults.length} de {searchAgendaResults.length}
+                    </p>
+                  )}
+                </div>
+
+                <div className="border border-border rounded-sm p-3 bg-neutral-50 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Tópico: Anotações</p>
+                    <span className="text-[10px] font-bold text-neutral-400">
+                      {searchNotesResults.length} resultado(s)
+                    </span>
+                  </div>
+
+                  {visibleNotesResults.length === 0 ? (
+                    <p className="text-sm text-neutral-400">Nenhuma anotação encontrada.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {visibleNotesResults.map((result) => (
+                        <button
+                          key={`note-line-${result.lineNumber}`}
+                          onClick={() => setActiveTab('notes')}
+                          className="w-full text-left p-2 rounded-sm border border-transparent hover:border-border hover:bg-white transition-colors"
+                        >
+                          <p className="text-sm break-words text-ink">{result.line}</p>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 mt-1">
+                            Linha {result.lineNumber} • abrir em Notas
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {searchNotesResults.length > visibleNotesResults.length && (
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
+                      Mostrando {visibleNotesResults.length} de {searchNotesResults.length}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {activeTab === 'notes' ? (
             <div className="flex flex-col gap-4">
               <p className="text-sm text-neutral-500">
@@ -1009,7 +1213,7 @@ export default function App() {
 
                 {visualScope === 'week' && (
                   <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-500">
-                    {format(visualWeekRange.start, 'd MMM', { locale: ptBR })} a {format(visualWeekRange.end, 'd MMM', { locale: ptBR })}
+                    {format(visualWeekRange.start, 'dd/MM/yy')} a {format(visualWeekRange.end, 'dd/MM/yy')}
                   </span>
                 )}
               </div>
@@ -1077,12 +1281,19 @@ export default function App() {
                             ) : (
                               dayGroups.map((group) => (
                                 <div key={`${categoryCard.category}-${group.dayKey}`} className="space-y-1.5">
-                                  <p className="text-[12px] font-black text-neutral-600">
-                                    Dia {format(group.dayDate, 'd')}:
-                                  </p>
+                                  <button
+                                    onClick={() => openAgendaForDate(group.dayDate)}
+                                    className="text-[12px] font-black text-neutral-600 hover:text-ink hover:underline transition-colors"
+                                  >
+                                    Dia {format(group.dayDate, 'dd/MM/yy')}
+                                  </button>
                                   <div className="space-y-1.5">
                                     {group.entries.map((entry) => (
-                                      <div key={`${entry.item.id}-${group.dayKey}`} className="flex items-start gap-2">
+                                      <button
+                                        key={`${entry.item.id}-${group.dayKey}`}
+                                        onClick={() => openAgendaForDate(group.dayDate)}
+                                        className="w-full flex items-start gap-2 text-left p-1.5 rounded-sm hover:bg-neutral-50 transition-colors"
+                                      >
                                         {entry.isDone ? (
                                           <CheckCircle2 size={13} className="text-green-600 mt-0.5 flex-shrink-0" />
                                         ) : (
@@ -1093,7 +1304,7 @@ export default function App() {
                                         >
                                           - {entry.item.text}
                                         </p>
-                                      </div>
+                                      </button>
                                     ))}
                                   </div>
                                 </div>
