@@ -97,6 +97,7 @@ export default function App() {
   const [notes, setNotes] = useState('');
   const [notesUpdatedAt, setNotesUpdatedAt] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
 
   // Edit/Delete Modals Mode
   const [editingItem, setEditingItem] = useState<AgendaItem | null>(null);
@@ -670,15 +671,10 @@ export default function App() {
     setActiveTab('list');
   };
 
-  const getItemReferenceDate = (item: AgendaItem): Date => {
-    const fallbackDate = new Date(item.timestamp);
-
-    if (!item.scheduledDate) {
-      return fallbackDate;
-    }
-
-    const parsedDate = parseISO(item.scheduledDate);
-    return Number.isNaN(parsedDate.getTime()) ? fallbackDate : parsedDate;
+  const openAgendaForItem = (itemId: string, date: Date) => {
+    openAgendaForDate(date);
+    setSearchQuery('');
+    setFocusedItemId(itemId);
   };
 
   const normalizedSearchQuery = useMemo(
@@ -690,9 +686,10 @@ export default function App() {
     if (!normalizedSearchQuery) return [];
 
     return items
+      .filter((item) => checkItemVisibility(item, selectedDate))
       .map((item) => {
-        const referenceDate = getItemReferenceDate(item);
-        const referenceDateKey = format(referenceDate, 'yyyy-MM-dd');
+        const referenceDate = selectedDate;
+        const referenceDateKey = format(selectedDate, 'yyyy-MM-dd');
         const recurrenceLabel = RECURRENCE_OPTIONS.find((option) => option.value === item.recurrence)?.label || '';
         const isDoneOnReferenceDate = (item.completedDates || []).includes(referenceDateKey);
         const searchIndex = normalizeSearchText(
@@ -717,6 +714,7 @@ export default function App() {
           recurrenceLabel,
           isDoneOnReferenceDate,
           referenceDate,
+          timestamp: item.timestamp,
           referenceDateLabel: format(referenceDate, 'dd/MM/yy'),
           timeLabel: format(item.timestamp, 'HH:mm'),
         };
@@ -728,32 +726,16 @@ export default function App() {
         recurrenceLabel: string;
         isDoneOnReferenceDate: boolean;
         referenceDate: Date;
+        timestamp: number;
         referenceDateLabel: string;
         timeLabel: string;
       } => result !== null)
-      .sort((a, b) => b.referenceDate.getTime() - a.referenceDate.getTime());
-  }, [items, normalizedSearchQuery]);
-
-  const searchNotesResults = useMemo(() => {
-    if (!normalizedSearchQuery) return [];
-
-    return notes
-      .split(/\r?\n/)
-      .map((line, index) => ({
-        line: line.trim(),
-        lineNumber: index + 1,
-      }))
-      .filter((entry) => entry.line && normalizeSearchText(entry.line).includes(normalizedSearchQuery));
-  }, [notes, normalizedSearchQuery]);
+      .sort((a, b) => b.timestamp - a.timestamp);
+  }, [items, normalizedSearchQuery, selectedDate]);
 
   const visibleAgendaResults = useMemo(
     () => searchAgendaResults.slice(0, 12),
     [searchAgendaResults]
-  );
-
-  const visibleNotesResults = useMemo(
-    () => searchNotesResults.slice(0, 12),
-    [searchNotesResults]
   );
 
   const handleCategoryFilterSelect = (category: string) => {
@@ -771,6 +753,25 @@ export default function App() {
   };
 
   const isSelectedDateToday = isToday(selectedDate);
+
+  useEffect(() => {
+    if (!focusedItemId || activeTab !== 'list') return;
+
+    const targetId = `agenda-item-${focusedItemId}`;
+    const scrollTimer = window.setTimeout(() => {
+      const target = document.getElementById(targetId);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+
+    const clearHighlightTimer = window.setTimeout(() => {
+      setFocusedItemId((current) => (current === focusedItemId ? null : current));
+    }, 2600);
+
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearHighlightTimer);
+    };
+  }, [focusedItemId, activeTab, filteredItems.length]);
 
   // Calendar rendering helpers
   const monthDays = useMemo(() => {
@@ -1070,7 +1071,7 @@ export default function App() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Pesquisar anotações e marcações..."
+                placeholder="Pesquisar marcações do dia..."
                 className="w-full h-11 pl-10 pr-10 border-2 border-border rounded-sm text-sm font-medium outline-none focus:border-ink"
               />
               {searchQuery && (
@@ -1086,10 +1087,12 @@ export default function App() {
             </div>
 
             {normalizedSearchQuery && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 <div className="border border-border rounded-sm p-3 bg-neutral-50 space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Tópico: Marcações</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">
+                      Tópico: Marcações do dia
+                    </p>
                     <span className="text-[10px] font-bold text-neutral-400">
                       {searchAgendaResults.length} resultado(s)
                     </span>
@@ -1102,7 +1105,7 @@ export default function App() {
                       {visibleAgendaResults.map((result) => (
                         <button
                           key={result.id}
-                          onClick={() => openAgendaForDate(result.referenceDate)}
+                          onClick={() => openAgendaForItem(result.id, result.referenceDate)}
                           className="w-full text-left p-2 rounded-sm border border-transparent hover:border-border hover:bg-white transition-colors"
                         >
                           <p className={`text-sm break-words ${result.isDoneOnReferenceDate ? 'text-neutral-400 line-through' : 'text-ink'}`}>
@@ -1120,40 +1123,6 @@ export default function App() {
                   {searchAgendaResults.length > visibleAgendaResults.length && (
                     <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
                       Mostrando {visibleAgendaResults.length} de {searchAgendaResults.length}
-                    </p>
-                  )}
-                </div>
-
-                <div className="border border-border rounded-sm p-3 bg-neutral-50 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Tópico: Anotações</p>
-                    <span className="text-[10px] font-bold text-neutral-400">
-                      {searchNotesResults.length} resultado(s)
-                    </span>
-                  </div>
-
-                  {visibleNotesResults.length === 0 ? (
-                    <p className="text-sm text-neutral-400">Nenhuma anotação encontrada.</p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {visibleNotesResults.map((result) => (
-                        <button
-                          key={`note-line-${result.lineNumber}`}
-                          onClick={() => setActiveTab('notes')}
-                          className="w-full text-left p-2 rounded-sm border border-transparent hover:border-border hover:bg-white transition-colors"
-                        >
-                          <p className="text-sm break-words text-ink">{result.line}</p>
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 mt-1">
-                            Linha {result.lineNumber} • abrir em Notas
-                          </p>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {searchNotesResults.length > visibleNotesResults.length && (
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
-                      Mostrando {visibleNotesResults.length} de {searchNotesResults.length}
                     </p>
                   )}
                 </div>
@@ -1329,14 +1298,16 @@ export default function App() {
                 <AnimatePresence mode="popLayout" initial={false}>
                   {filteredItems.map((item) => {
                     const isDone = item.completedDates?.includes(selectedDateKey);
+                    const isFocused = focusedItemId === item.id;
                     return (
                       <motion.div
+                        id={`agenda-item-${item.id}`}
                         key={item.id}
                         layout
                         initial={{ opacity: 0, scale: 0.98 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.98 }}
-                        className={`flex flex-col md:grid md:grid-cols-[80px_1fr_120px] items-start md:items-center p-4 md:p-5 border border-border rounded-sm transition-all gap-3 md:gap-4 ${isDone ? 'opacity-40 grayscale' : 'bg-white hover:bg-neutral-50 shadow-sm md:shadow-none'}`}
+                        className={`flex flex-col md:grid md:grid-cols-[80px_1fr_120px] items-start md:items-center p-4 md:p-5 border border-border rounded-sm transition-all gap-3 md:gap-4 ${isDone ? 'opacity-40 grayscale' : 'bg-white hover:bg-neutral-50 shadow-sm md:shadow-none'} ${isFocused ? 'ring-2 ring-highlight ring-offset-2 ring-offset-white' : ''}`}
                         style={!isDone ? { borderLeft: `4px solid ${CATEGORY_STYLES[item.category] || '#343A40'}` } : {}}
                       >
                         <div className="flex items-center justify-between w-full md:w-auto">
