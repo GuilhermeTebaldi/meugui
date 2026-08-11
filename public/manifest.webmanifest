@@ -2,6 +2,7 @@
   "name": "Nota Mental",
   "short_name": "Nota Mental",
   "description": "Uma agenda minimalista e rápida para marcações instantâneas e organização diária.",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
