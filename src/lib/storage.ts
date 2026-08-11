@@ -42,6 +42,15 @@ const normalizeItems = (value: unknown): AgendaItem[] => {
   return value.filter(isValidAgendaItem).map((item) => ({
     ...item,
     completedDates: item.completedDates || [],
+    completedAtByDate: item.completedAtByDate && typeof item.completedAtByDate === 'object'
+      ? Object.fromEntries(
+          Object.entries(item.completedAtByDate).filter((entry): entry is [string, number] => (
+            typeof entry[0] === 'string' &&
+            typeof entry[1] === 'number' &&
+            Number.isFinite(entry[1])
+          ))
+        )
+      : undefined,
   }));
 };
 

@@ -29,7 +29,8 @@ import {
   FileText,
   Download,
   Upload,
-  Settings
+  Settings,
+  AlertTriangle
 } from 'lucide-react';
 import { 
   format, 
@@ -78,6 +79,11 @@ const normalizeSearchText = (value: string): string =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
 
+const getCompletionTimestamp = (item: AgendaItem, dateKey: string): number | null => {
+  const timestamp = item.completedAtByDate?.[dateKey];
+  return typeof timestamp === 'number' && Number.isFinite(timestamp) ? timestamp : null;
+};
+
 export default function App() {
   const [items, setItems] = useState<AgendaItem[]>([]);
   const [inputText, setInputText] = useState('');
@@ -102,6 +108,12 @@ export default function App() {
   // Edit/Delete Modals Mode
   const [editingItem, setEditingItem] = useState<AgendaItem | null>(null);
   const [deletingItem, setDeletingItem] = useState<AgendaItem | null>(null);
+  const [undoingCompletion, setUndoingCompletion] = useState<{
+    item: AgendaItem;
+    dateKey: string;
+    dateLabel: string;
+    completedAtLabel: string | null;
+  } | null>(null);
   const [editText, setEditText] = useState('');
   const [editCategory, setEditCategory] = useState<Category>('');
   const [editRecurrence, setEditRecurrence] = useState<RecurrenceType>('none');
@@ -250,7 +262,23 @@ export default function App() {
             Array.isArray(item.completedDates)
           );
         })
-        .map((item) => ({ ...item, completedDates: item.completedDates || [] }));
+        .map((item) => {
+          const completedAtByDate = item.completedAtByDate && typeof item.completedAtByDate === 'object'
+            ? Object.fromEntries(
+                Object.entries(item.completedAtByDate).filter((entry): entry is [string, number] => (
+                  typeof entry[0] === 'string' &&
+                  typeof entry[1] === 'number' &&
+                  Number.isFinite(entry[1])
+                ))
+              )
+            : undefined;
+
+          return {
+            ...item,
+            completedDates: item.completedDates || [],
+            completedAtByDate,
+          };
+        });
       const importedCategories = parsed.categories.filter(
         (value): value is string => typeof value === 'string'
       );
@@ -291,34 +319,21 @@ export default function App() {
     }
   };
 
-  const readFileAsDataUrl = (file: File): Promise<string> =>
-    new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve((reader.result as string) || '');
-      reader.onerror = () => resolve('');
-      reader.readAsDataURL(file);
-    });
-
   const compressImage = async (file: File): Promise<string> => {
-    const sourceDataUrl = await readFileAsDataUrl(file);
-    if (!sourceDataUrl) {
-      throw new Error('Arquivo de imagem invalido');
-    }
-
-    // Em alguns celulares (HEIC/HEIF) o canvas pode falhar. Nesses casos, usa a imagem original.
-    if (file.type.includes('heic') || file.type.includes('heif')) {
-      return sourceDataUrl;
-    }
-
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      const objectUrl = URL.createObjectURL(file);
       const img = new Image();
       img.onload = () => {
         try {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 380;
-          const MAX_HEIGHT = 380;
+          const MAX_WIDTH = 720;
+          const MAX_HEIGHT = 720;
           let width = img.width;
           let height = img.height;
+
+          if (!width || !height) {
+            throw new Error('Imagem sem dimensoes validas');
+          }
 
           if (width > height && width > MAX_WIDTH) {
             height = Math.round((height * MAX_WIDTH) / width);
@@ -332,19 +347,28 @@ export default function App() {
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           if (!ctx) {
-            resolve(sourceDataUrl);
+            throw new Error('Canvas indisponivel');
             return;
           }
 
           ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.65));
-        } catch {
-          resolve(sourceDataUrl);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+          if (!dataUrl.startsWith('data:image/jpeg')) {
+            throw new Error('Falha ao converter imagem');
+          }
+          resolve(dataUrl);
+        } catch (error) {
+          reject(error);
+        } finally {
+          URL.revokeObjectURL(objectUrl);
         }
       };
 
-      img.onerror = () => resolve(sourceDataUrl);
-      img.src = sourceDataUrl;
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Formato de imagem nao suportado'));
+      };
+      img.src = objectUrl;
     });
   };
 
@@ -356,7 +380,7 @@ export default function App() {
       const compressed = await compressImage(file);
       setPendingImage(compressed);
     } catch {
-      alert('Nao foi possivel processar essa imagem no celular. Tente outra foto.');
+      alert('Nao foi possivel abrir essa foto no navegador. No iPhone, ajuste a camera para Mais Compativel/JPEG ou escolha uma foto JPG/PNG.');
     } finally {
       e.target.value = '';
     }
@@ -389,6 +413,7 @@ export default function App() {
       timestamp: finalTimestamp,
       category: selectedCategory,
       completedDates: [],
+      completedAtByDate: {},
       scheduledDate: format(isSpecificDay ? selectedDate : new Date(), 'yyyy-MM-dd'),
       recurrence: selectedRecurrence,
       image: pendingImage || undefined,
@@ -405,17 +430,54 @@ export default function App() {
 
   const toggleDone = (id: string) => {
     const dateKey = format(selectedDate, 'yyyy-MM-dd');
+    const itemToToggle = items.find((item) => item.id === id);
+    const isCurrentlyDone = itemToToggle?.completedDates?.includes(dateKey);
+
+    if (isCurrentlyDone && itemToToggle) {
+      const completedAt = getCompletionTimestamp(itemToToggle, dateKey);
+      setUndoingCompletion({
+        item: itemToToggle,
+        dateKey,
+        dateLabel: format(selectedDate, 'dd/MM/yy'),
+        completedAtLabel: completedAt ? format(completedAt, 'HH:mm') : null,
+      });
+      return;
+    }
+
     const newItems = items.map(item => {
       if (item.id === id) {
-        const isDone = item.completedDates?.includes(dateKey);
-        const newCompletedDates = isDone 
-          ? (item.completedDates || []).filter(d => d !== dateKey)
-          : [...(item.completedDates || []), dateKey];
-        return { ...item, completedDates: newCompletedDates };
+        const newCompletedDates = [...(item.completedDates || []), dateKey];
+        const completedAtByDate = { ...(item.completedAtByDate || {}) };
+        completedAtByDate[dateKey] = Date.now();
+
+        return { ...item, completedDates: newCompletedDates, completedAtByDate };
       }
       return item;
     });
     setItems(newItems);
+    void saveItemsSafely(newItems);
+  };
+
+  const confirmUndoCompletion = () => {
+    if (!undoingCompletion) return;
+
+    const { item: undoingItem, dateKey } = undoingCompletion;
+    const newItems = items.map(item => {
+      if (item.id === undoingItem.id) {
+        const completedAtByDate = { ...(item.completedAtByDate || {}) };
+        delete completedAtByDate[dateKey];
+
+        return {
+          ...item,
+          completedDates: (item.completedDates || []).filter(d => d !== dateKey),
+          completedAtByDate,
+        };
+      }
+      return item;
+    });
+
+    setItems(newItems);
+    setUndoingCompletion(null);
     void saveItemsSafely(newItems);
   };
 
@@ -692,6 +754,7 @@ export default function App() {
         const referenceDateKey = format(selectedDate, 'yyyy-MM-dd');
         const recurrenceLabel = RECURRENCE_OPTIONS.find((option) => option.value === item.recurrence)?.label || '';
         const isDoneOnReferenceDate = (item.completedDates || []).includes(referenceDateKey);
+        const completedAt = getCompletionTimestamp(item, referenceDateKey);
         const searchIndex = normalizeSearchText(
           [
             item.text,
@@ -699,6 +762,7 @@ export default function App() {
             recurrenceLabel,
             format(referenceDate, 'dd/MM/yy'),
             format(item.timestamp, 'HH:mm'),
+            completedAt ? `feito as ${format(completedAt, 'HH:mm')}` : '',
             isDoneOnReferenceDate ? 'concluido concluída concluido done' : 'pendente aberta',
           ].join(' ')
         );
@@ -717,6 +781,7 @@ export default function App() {
           timestamp: item.timestamp,
           referenceDateLabel: format(referenceDate, 'dd/MM/yy'),
           timeLabel: format(item.timestamp, 'HH:mm'),
+          completedAtLabel: completedAt ? format(completedAt, 'HH:mm') : null,
         };
       })
       .filter((result): result is {
@@ -729,6 +794,7 @@ export default function App() {
         timestamp: number;
         referenceDateLabel: string;
         timeLabel: string;
+        completedAtLabel: string | null;
       } => result !== null)
       .sort((a, b) => b.timestamp - a.timestamp);
   }, [items, normalizedSearchQuery, selectedDate]);
@@ -825,7 +891,8 @@ export default function App() {
                         type="file" 
                         ref={fileInputRef} 
                         onChange={handleImageChange} 
-                        accept="image/*,image/heic,image/heif,image/jpeg,image/png,image/webp"
+                        accept="image/jpeg,image/png,image/webp"
+                        capture="environment"
                         className="hidden" 
                       />
                     </div>
@@ -1114,6 +1181,7 @@ export default function App() {
                           <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 mt-1">
                             {result.referenceDateLabel} • {result.timeLabel} • {result.category}
                             {result.recurrenceLabel ? ` • ${result.recurrenceLabel}` : ''}
+                            {result.completedAtLabel ? ` • Feito às ${result.completedAtLabel}` : ''}
                           </p>
                         </button>
                       ))}
@@ -1268,11 +1336,18 @@ export default function App() {
                                         ) : (
                                           <Circle size={13} className="text-neutral-300 mt-0.5 flex-shrink-0" />
                                         )}
-                                        <p
-                                          className={`text-sm break-words ${entry.isDone ? 'line-through text-neutral-400' : 'text-ink'}`}
-                                        >
-                                          - {entry.item.text}
-                                        </p>
+                                        <span className="min-w-0">
+                                          <span
+                                            className={`block text-sm break-words ${entry.isDone ? 'line-through text-neutral-400' : 'text-ink'}`}
+                                          >
+                                            - {entry.item.text}
+                                          </span>
+                                          {entry.isDone && getCompletionTimestamp(entry.item, group.dayKey) && (
+                                            <span className="block mt-0.5 text-[10px] font-bold uppercase tracking-widest text-green-600">
+                                              Feito às {format(getCompletionTimestamp(entry.item, group.dayKey)!, 'HH:mm')}
+                                            </span>
+                                          )}
+                                        </span>
                                       </button>
                                     ))}
                                   </div>
@@ -1298,6 +1373,7 @@ export default function App() {
                 <AnimatePresence mode="popLayout" initial={false}>
                   {filteredItems.map((item) => {
                     const isDone = item.completedDates?.includes(selectedDateKey);
+                    const completedAt = getCompletionTimestamp(item, selectedDateKey);
                     const isFocused = focusedItemId === item.id;
                     return (
                       <motion.div
@@ -1360,6 +1436,12 @@ export default function App() {
                             <div className="text-[9px] font-bold text-highlight uppercase tracking-[0.2em] flex items-center justify-end gap-1">
                               <Repeat size={10} />
                               {RECURRENCE_OPTIONS.find(o => o.value === item.recurrence)?.label}
+                            </div>
+                          )}
+                          {isDone && completedAt && (
+                            <div className="text-[9px] font-bold text-green-600 uppercase tracking-[0.2em] flex items-center justify-end gap-1">
+                              <CheckCircle2 size={10} />
+                              Feito às {format(completedAt, 'HH:mm')}
                             </div>
                           )}
                           <div className="flex md:flex-col items-center md:items-end justify-between md:justify-end gap-2 mt-2 md:mt-0">
@@ -1593,6 +1675,67 @@ export default function App() {
                   className="flex-1 p-3 bg-ink text-white font-bold uppercase text-sm hover:opacity-90 transition-opacity"
                 >
                   Salvar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Undo Completion Confirmation Modal */}
+      <AnimatePresence>
+        {undoingCompletion && (
+          <div className="fixed inset-0 z-[55] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setUndoingCompletion(null)}
+              className="absolute inset-0 bg-ink/65 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 24 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 24 }}
+              transition={{ type: 'spring', stiffness: 360, damping: 28 }}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="undo-completion-title"
+              className="relative bg-white border-4 border-ink p-6 md:p-8 w-full max-w-sm shadow-[10px_10px_0px_#000] rounded-sm"
+            >
+              <div className="w-12 h-12 border-2 border-ink bg-yellow-100 flex items-center justify-center rounded-sm shadow-[4px_4px_0px_#000] mb-5">
+                <AlertTriangle size={24} className="text-yellow-700" />
+              </div>
+
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 mb-2">
+                Desfazer conclusão
+              </p>
+              <h3 id="undo-completion-title" className="text-xl font-black uppercase tracking-tighter mb-3 text-ink">
+                Perder horário salvo?
+              </h3>
+              <p className="text-sm font-medium leading-relaxed text-neutral-600 mb-4">
+                Esta tarefa foi marcada como feita em {undoingCompletion.dateLabel}
+                {undoingCompletion.completedAtLabel ? ` às ${undoingCompletion.completedAtLabel}` : ''}.
+                Ao desfazer, esse horário será apagado.
+              </p>
+              <div className="p-3 border border-border bg-neutral-50 rounded-sm mb-7">
+                <p className="text-sm font-bold text-ink break-words">
+                  {undoingCompletion.item.text}
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setUndoingCompletion(null)}
+                  className="flex-1 p-3 border-2 border-ink font-bold uppercase text-sm hover:bg-neutral-50 transition-colors rounded-sm"
+                >
+                  Manter
+                </button>
+                <button
+                  onClick={confirmUndoCompletion}
+                  className="flex-1 p-3 bg-red-600 text-white border-2 border-ink font-bold uppercase text-sm hover:bg-red-700 transition-colors shadow-[4px_4px_0px_#000] rounded-sm"
+                >
+                  Desfazer
                 </button>
               </div>
             </motion.div>

@@ -20,6 +20,7 @@ export interface AgendaItem {
   scheduledDate?: string; 
   category: Category;
   completedDates: string[]; // ISO date strings (yyyy-MM-dd)
+  completedAtByDate?: Record<string, number>; // Completion timestamp by date key (yyyy-MM-dd)
   exceptionDates?: string[]; // ISO date strings to skip in recurring items
   recurrence: RecurrenceType;
   image?: string; // base64 string
