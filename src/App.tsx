@@ -30,7 +30,8 @@ import {
   Download,
   Upload,
   Settings,
-  AlertTriangle
+  AlertTriangle,
+  Languages
 } from 'lucide-react';
 import { 
   format, 
@@ -51,10 +52,48 @@ import {
   isAfter,
   startOfDay
 } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { ptBR, it } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
 import { AgendaItem, Category, RecurrenceType } from './types';
 import { storage } from './lib/storage';
+
+type Language = 'pt' | 'it';
+
+const LANGUAGE_STORAGE_KEY = 'agenda_mental_language';
+
+const getInitialLanguage = (): Language => {
+  if (typeof window === 'undefined') return 'pt';
+  return localStorage.getItem(LANGUAGE_STORAGE_KEY) === 'it' ? 'it' : 'pt';
+};
+
+const TRANSLATIONS = {
+  pt: {
+    recurrence: { none: 'Não repetir', daily: 'Diário', weekly: 'Semanal', monthly: 'Mensal', workdays: 'Seg-Sex', monSat: 'Seg-Sáb' },
+    alerts: { load: 'Nao foi possivel carregar os dados salvos neste dispositivo.', save: 'Falha ao salvar. Faça um backup agora para evitar perdas.', notes: 'Nao foi possivel salvar o bloco de notas neste dispositivo.', invalidBackup: 'Backup invalido. Selecione um arquivo JSON gerado pelo sistema.', invalidImage: 'Nao foi possivel abrir essa foto no navegador. No iPhone, ajuste a camera para Mais Compativel/JPEG ou escolha uma foto JPG/PNG.' },
+    placeholders: { task: 'Ex: Preciso ir ao médico às 14h', newCategory: 'Nova...', search: 'Pesquisar marcações do dia...', notes: 'Escreva suas notas aqui...' },
+    titles: { addNow: 'Registrar agora', addNowDisabled: 'O botão Agora só funciona no dia atual', collapseOpen: 'Mostrar formulário', collapseClose: 'Ver apenas compromissos', options: 'Opções', openOptions: 'Abrir opções', clearSearch: 'Limpar pesquisa', today: 'Dia atual', completedOnDay: 'Tarefas concluídas neste dia' },
+    ui: { all: 'Tudo', now: 'Agora', today: 'Hoje', schedule: 'Agendar', repeat: 'Repetir:', notesTitle: 'Bloco de Notas', privateNotes: 'Notas', appointments: ' notas', list: 'Lista', visual: 'Visual', notes: 'Notas', calendar: 'Calendário', seeAll: 'Ver Tudo', backup: 'Backup', restore: 'Restaurar', language: 'Linguagem', portuguese: 'Português', italian: 'Italiano', searchTopic: 'Tópico: Marcações do dia', results: 'resultado(s)', noResults: 'Nenhuma marcação encontrada.', showing: 'Mostrando', of: 'de', freeNotes: 'Espaço livre para anotações rápidas.', chars: 'chars', lastUpdate: 'Ultima atualizacao:', noUpdate: 'Sem atualizacao', day: 'Dia', week: 'Semana', total: 'Total', pending: 'Pendentes', completed: 'Concluídos', noVisualItems: 'Sem itens para visualizar', uncategorized: 'Sem categoria', completedLower: 'concluídos', noCategoryItems: 'Sem marcações nesta categoria.', emptyList: 'Lista vazia', info: 'Informações', privacy: 'Sua agenda é 100% privada e reside apenas neste dispositivo.', operational: 'Sistema Operacional', agenda: 'Agenda', edit: 'Editar', delete: 'Excluir', close: 'FECHAR', doneAt: 'Feito às', timeConnector: 'às' },
+    editModal: { title: 'Editar Compromisso', text: 'Texto', time: 'Hora', category: 'Categoria', repeat: 'Repetir', cancel: 'Cancelar', save: 'Salvar' },
+    undoModal: { eyebrow: 'Desfazer conclusão', title: 'Perder horário salvo?', beforeDate: 'Esta tarefa foi marcada como feita em', afterDate: 'Ao desfazer, esse horário será apagado.', keep: 'Manter', undo: 'Desfazer' },
+    deleteModal: { title: 'Excluir Compromisso', single: 'Tem certeza que deseja excluir este compromisso?', recurring: 'Este é um compromisso recorrente. Como deseja excluí-lo?', cancel: 'Cancelar', delete: 'Excluir', onlyThisDate: 'Apenas desta data', allOccurrences: 'Todas as ocorrências' },
+    searchTerms: { done: 'concluido concluída concluido done feito', pending: 'pendente aberta' },
+    weekdays: ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'],
+    dateRangeSeparator: 'a',
+  },
+  it: {
+    recurrence: { none: 'Non ripetere', daily: 'Giornaliero', weekly: 'Settimanale', monthly: 'Mensile', workdays: 'Lun-Ven', monSat: 'Lun-Sab' },
+    alerts: { load: 'Non è stato possibile caricare i dati salvati su questo dispositivo.', save: 'Salvataggio non riuscito. Crea subito un backup per evitare perdite.', notes: 'Non è stato possibile salvare il blocco note su questo dispositivo.', invalidBackup: 'Backup non valido. Seleziona un file JSON generato dal sistema.', invalidImage: 'Non è stato possibile aprire questa foto nel browser. Su iPhone, imposta la fotocamera su Massima compatibilità/JPEG oppure scegli una foto JPG/PNG.' },
+    placeholders: { task: 'Es: Devo andare dal medico alle 14:00', newCategory: 'Nuova...', search: 'Cerca le voci del giorno...', notes: 'Scrivi qui le tue note...' },
+    titles: { addNow: 'Registra adesso', addNowDisabled: 'Il pulsante Adesso funziona solo nel giorno corrente', collapseOpen: 'Mostra modulo', collapseClose: 'Mostra solo impegni', options: 'Opzioni', openOptions: 'Apri opzioni', clearSearch: 'Cancella ricerca', today: 'Giorno corrente', completedOnDay: 'Attività completate in questo giorno' },
+    ui: { all: 'Tutto', now: 'Adesso', today: 'Oggi', schedule: 'Programma', repeat: 'Ripeti:', notesTitle: 'Blocco Note', privateNotes: 'Note private', appointments: 'Impegni', list: 'Lista', visual: 'Visuale', notes: 'Note', calendar: 'Calendario', seeAll: 'Vedi Tutto', backup: 'Backup', restore: 'Ripristina', language: 'Lingua', portuguese: 'Portoghese', italian: 'Italiano', searchTopic: 'Argomento: Voci del giorno', results: 'risultato/i', noResults: 'Nessuna voce trovata.', showing: 'Mostrando', of: 'di', freeNotes: 'Spazio libero per annotazioni rapide.', chars: 'caratteri', lastUpdate: 'Ultimo aggiornamento:', noUpdate: 'Nessun aggiornamento', day: 'Giorno', week: 'Settimana', total: 'Totale', pending: 'In sospeso', completed: 'Completati', noVisualItems: 'Nessun elemento da visualizzare', uncategorized: 'Senza categoria', completedLower: 'completati', noCategoryItems: 'Nessuna voce in questa categoria.', emptyList: 'Lista vuota', info: 'Informazioni', privacy: 'La tua agenda è privata al 100% e resta solo su questo dispositivo.', operational: 'Sistema operativo', agenda: 'Agenda', edit: 'Modifica', delete: 'Elimina', close: 'CHIUDI', doneAt: 'Fatto alle', timeConnector: 'alle' },
+    editModal: { title: 'Modifica Impegno', text: 'Testo', time: 'Ora', category: 'Categoria', repeat: 'Ripeti', cancel: 'Annulla', save: 'Salva' },
+    undoModal: { eyebrow: 'Annulla completamento', title: "Perdere l'orario salvato?", beforeDate: 'Questa attività è stata segnata come fatta il', afterDate: 'Se annulli, questo orario verrà cancellato.', keep: 'Mantieni', undo: 'Annulla' },
+    deleteModal: { title: 'Elimina Impegno', single: 'Sei sicuro di voler eliminare questo impegno?', recurring: 'Questo è un impegno ricorrente. Come vuoi eliminarlo?', cancel: 'Annulla', delete: 'Elimina', onlyThisDate: 'Solo questa data', allOccurrences: 'Tutte le occorrenze' },
+    searchTerms: { done: 'completato completata concluso fatta fatto done', pending: 'in sospeso aperta' },
+    weekdays: ['D', 'L', 'M', 'M', 'G', 'V', 'S'],
+    dateRangeSeparator: 'a',
+  },
+} as const;
 
 const CATEGORY_STYLES: Record<string, string> = {
   'Trabalho': '#007BFF',
@@ -64,13 +103,13 @@ const CATEGORY_STYLES: Record<string, string> = {
   'Outros': '#6C757D',
 };
 
-const RECURRENCE_OPTIONS: { label: string; value: RecurrenceType }[] = [
-  { label: 'Não repetir', value: 'none' },
-  { label: 'Diário', value: 'daily' },
-  { label: 'Semanal', value: 'weekly' },
-  { label: 'Mensal', value: 'monthly' },
-  { label: 'Seg-Sex', value: 'workdays' },
-  { label: 'Seg-Sáb', value: 'mon-sat' },
+const RECURRENCE_OPTIONS: { labelKey: keyof typeof TRANSLATIONS.pt.recurrence; value: RecurrenceType }[] = [
+  { labelKey: 'none', value: 'none' },
+  { labelKey: 'daily', value: 'daily' },
+  { labelKey: 'weekly', value: 'weekly' },
+  { labelKey: 'monthly', value: 'monthly' },
+  { labelKey: 'workdays', value: 'workdays' },
+  { labelKey: 'monSat', value: 'mon-sat' },
 ];
 
 const normalizeSearchText = (value: string): string =>
@@ -85,6 +124,15 @@ const getCompletionTimestamp = (item: AgendaItem, dateKey: string): number | nul
 };
 
 export default function App() {
+  const [language, setLanguage] = useState<Language>(getInitialLanguage);
+  const t = TRANSLATIONS[language];
+  const dateLocale = language === 'it' ? it : ptBR;
+
+  const getRecurrenceLabel = (value: RecurrenceType): string => {
+    const option = RECURRENCE_OPTIONS.find((item) => item.value === value);
+    return option ? t.recurrence[option.labelKey] : '';
+  };
+
   const [items, setItems] = useState<AgendaItem[]>([]);
   const [inputText, setInputText] = useState('');
   const [categories, setCategories] = useState<string[]>([]);
@@ -125,6 +173,11 @@ export default function App() {
   const backupInputRef = useRef<HTMLInputElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    document.documentElement.lang = language === 'it' ? 'it' : 'pt-BR';
+  }, [language]);
+
   // Load data on mount
   useEffect(() => {
     let isMounted = true;
@@ -147,7 +200,7 @@ export default function App() {
         }
       } catch {
         if (!isMounted) return;
-        alert('Nao foi possivel carregar os dados salvos neste dispositivo.');
+        alert(t.alerts.load);
       }
     };
 
@@ -180,7 +233,7 @@ export default function App() {
     try {
       await storage.saveItems(nextItems);
     } catch {
-      alert('Falha ao salvar. Faça um backup agora para evitar perdas.');
+      alert(t.alerts.save);
     }
   };
 
@@ -194,7 +247,7 @@ export default function App() {
     try {
       storage.saveNotes({ content: nextContent, updatedAt: nextUpdatedAt });
     } catch {
-      alert('Nao foi possivel salvar o bloco de notas neste dispositivo.');
+      alert(t.alerts.notes);
     }
   };
 
@@ -313,7 +366,7 @@ export default function App() {
       storage.saveNotes(importedNotes);
       await saveItemsSafely(importedItems);
     } catch {
-      alert('Backup invalido. Selecione um arquivo JSON gerado pelo sistema.');
+      alert(t.alerts.invalidBackup);
     } finally {
       e.target.value = '';
     }
@@ -380,7 +433,7 @@ export default function App() {
       const compressed = await compressImage(file);
       setPendingImage(compressed);
     } catch {
-      alert('Nao foi possivel abrir essa foto no navegador. No iPhone, ajuste a camera para Mais Compativel/JPEG ou escolha uma foto JPG/PNG.');
+      alert(t.alerts.invalidImage);
     } finally {
       e.target.value = '';
     }
@@ -715,7 +768,7 @@ export default function App() {
           total: categoryItems.length,
         };
       })
-      .sort((a, b) => b.total - a.total || a.category.localeCompare(b.category, 'pt-BR'));
+      .sort((a, b) => b.total - a.total || a.category.localeCompare(b.category, language === 'it' ? 'it-IT' : 'pt-BR'));
 
     return {
       total: visualItems.length,
@@ -723,7 +776,7 @@ export default function App() {
       pending: visualItems.length - completed,
       categoryCards,
     };
-  }, [visualItems, visualScope, selectedDateKey, visualWeekRange.startKey, visualWeekRange.endKey]);
+  }, [visualItems, visualScope, selectedDateKey, visualWeekRange.startKey, visualWeekRange.endKey, language]);
 
   const openAgendaForDate = (date: Date) => {
     const safeDate = startOfDay(date);
@@ -752,7 +805,7 @@ export default function App() {
       .map((item) => {
         const referenceDate = selectedDate;
         const referenceDateKey = format(selectedDate, 'yyyy-MM-dd');
-        const recurrenceLabel = RECURRENCE_OPTIONS.find((option) => option.value === item.recurrence)?.label || '';
+        const recurrenceLabel = getRecurrenceLabel(item.recurrence);
         const isDoneOnReferenceDate = (item.completedDates || []).includes(referenceDateKey);
         const completedAt = getCompletionTimestamp(item, referenceDateKey);
         const searchIndex = normalizeSearchText(
@@ -762,8 +815,8 @@ export default function App() {
             recurrenceLabel,
             format(referenceDate, 'dd/MM/yy'),
             format(item.timestamp, 'HH:mm'),
-            completedAt ? `feito as ${format(completedAt, 'HH:mm')}` : '',
-            isDoneOnReferenceDate ? 'concluido concluída concluido done' : 'pendente aberta',
+            completedAt ? `${t.ui.doneAt} ${format(completedAt, 'HH:mm')}` : '',
+            isDoneOnReferenceDate ? t.searchTerms.done : t.searchTerms.pending,
           ].join(' ')
         );
 
@@ -797,7 +850,7 @@ export default function App() {
         completedAtLabel: string | null;
       } => result !== null)
       .sort((a, b) => b.timestamp - a.timestamp);
-  }, [items, normalizedSearchQuery, selectedDate]);
+  }, [items, normalizedSearchQuery, selectedDate, language]);
 
   const visibleAgendaResults = useMemo(
     () => searchAgendaResults.slice(0, 12),
@@ -863,7 +916,7 @@ export default function App() {
                   <div className="flex-grow relative">
                     <input
                       type="text"
-                      placeholder="Ex: Preciso ir ao médico às 14h"
+                      placeholder={t.placeholders.task}
                       className="w-full h-[50px] md:h-[60px] pl-4 md:pl-6 pr-12 text-lg md:text-xl bg-white border-2 border-ink rounded-sm outline-none placeholder:text-neutral-400"
                       value={inputText}
                       onChange={(e) => setInputText(e.target.value)}
@@ -906,15 +959,15 @@ export default function App() {
                           ? 'bg-ink text-white border-ink active:scale-95'
                           : 'bg-neutral-100 text-neutral-300 border-neutral-200 cursor-not-allowed'
                       }`}
-                      title={isSelectedDateToday ? 'Registrar agora' : 'O botão Agora só funciona no dia atual'}
+                      title={isSelectedDateToday ? t.titles.addNow : t.titles.addNowDisabled}
                     >
-                      Agora
+                      {t.ui.now}
                     </button>
                     <button
                       onClick={() => handleAddItem(true)}
                       className="flex-1 md:flex-none h-[50px] md:h-[60px] px-4 md:px-6 bg-white text-ink font-bold uppercase tracking-wider text-[11px] md:text-[13px] rounded-sm transition-all active:scale-95 border-2 border-ink hover:bg-neutral-50"
                     >
-                      Agendar
+                      {t.ui.schedule}
                     </button>
                   </div>
                 </div>
@@ -927,7 +980,7 @@ export default function App() {
               <button 
                 onClick={() => setIsHeaderCollapsed(!isHeaderCollapsed)}
                 className={`flex-shrink-0 p-2 border-2 border-ink rounded-sm transition-all ${isHeaderCollapsed ? 'bg-highlight text-white' : 'bg-white text-ink'}`}
-                title={isHeaderCollapsed ? "Mostrar formulário" : "Ver apenas compromissos"}
+                title={isHeaderCollapsed ? t.titles.collapseOpen : t.titles.collapseClose}
               >
                 <Plus size={16} className={`transition-transform duration-300 ${isHeaderCollapsed ? 'rotate-0' : 'rotate-45'}`} />
               </button>
@@ -940,7 +993,7 @@ export default function App() {
                   : 'text-neutral-400 border-transparent hover:text-neutral-600'
                 }`}
               >
-                Tudo
+                {t.ui.all}
               </button>
               {categories.map((cat) => (
                 <div key={cat} className="group flex items-center gap-1">
@@ -972,7 +1025,7 @@ export default function App() {
                     onChange={(e) => setNewCategoryName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
                     onBlur={() => !newCategoryName && setIsAddingCategory(false)}
-                    placeholder="Nova..."
+                    placeholder={t.placeholders.newCategory}
                     className="bg-neutral-50 border-b-2 border-ink text-[11px] font-bold uppercase outline-none px-1 w-20"
                   />
                   <button onClick={handleAddCategory} className="text-highlight font-black text-sm">✓</button>
@@ -1006,14 +1059,14 @@ export default function App() {
                   </div>
                   
                   <div className="flex items-center gap-2 bg-neutral-50 p-1.5 px-3 border border-border rounded-sm whitespace-nowrap">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">Repetir:</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">{t.ui.repeat}</span>
                     <select 
                       value={selectedRecurrence}
                       onChange={(e) => setSelectedRecurrence(e.target.value as RecurrenceType)}
                       className="bg-transparent text-[11px] font-black uppercase tracking-widest border-none focus:ring-0 cursor-pointer p-0 h-auto appearance-none"
                     >
                       {RECURRENCE_OPTIONS.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        <option key={opt.value} value={opt.value}>{t.recurrence[opt.labelKey]}</option>
                       ))}
                     </select>
                   </div>
@@ -1029,56 +1082,56 @@ export default function App() {
           {/* Main Content */}
         <section className={`bg-white p-6 md:p-10 space-y-8 ${activeTab === 'calendar' ? 'hidden lg:block' : 'block'}`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-            <h1 className="text-2xl md:text-4xl font-black tracking-tight text-ink uppercase">
-              {activeTab === 'notes' ? 'Bloco de Notas' : format(selectedDate, 'eeee, dd/MM/yy', { locale: ptBR })}
+            <h1 className="text-2xl md:text-4xl font-black tracking-tight text-ink uppercase min-w-0 break-words">
+              {activeTab === 'notes' ? t.ui.notesTitle : format(selectedDate, 'eeee, dd/MM/yy', { locale: dateLocale })}
             </h1>
-            <div className="flex flex-wrap items-center gap-2 md:gap-3">
-              <span className="text-[10px] md:text-sm font-bold text-neutral-400 uppercase tracking-widest">
+            <div className="flex items-center gap-2 md:gap-3 w-full md:w-auto md:max-w-[70%] overflow-x-auto overflow-y-visible no-scrollbar flex-nowrap justify-start md:justify-end pb-2 md:pb-0">
+              <span className="text-[10px] md:text-sm font-bold text-neutral-400 uppercase tracking-widest whitespace-nowrap flex-shrink-0">
                 {activeTab === 'notes'
-                  ? 'Notas privadas'
-                  : `${activeTab === 'visual' ? visualItems.length : filteredItems.length} Compromissos`}
+                  ? t.ui.privateNotes
+                  : `${activeTab === 'visual' ? visualItems.length : filteredItems.length} ${t.ui.appointments}`}
               </span>
 
-              <div className="flex items-center border border-border rounded-sm overflow-hidden">
+              <div className="flex items-center border border-border rounded-sm overflow-hidden flex-shrink-0">
                 <button
                   onClick={() => setActiveTab('list')}
-                  className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${
+                  className={`px-2.5 md:px-3 py-2 text-[10px] font-black uppercase tracking-wider md:tracking-widest transition-colors flex items-center gap-1.5 whitespace-nowrap ${
                     activeTab === 'list' ? 'bg-ink text-white' : 'bg-white text-neutral-500 hover:text-ink'
                   }`}
                 >
                   <Clock size={12} />
-                  Lista
+                  {t.ui.list}
                 </button>
                 <button
                   onClick={() => setActiveTab('visual')}
-                  className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${
+                  className={`px-2.5 md:px-3 py-2 text-[10px] font-black uppercase tracking-wider md:tracking-widest transition-colors flex items-center gap-1.5 whitespace-nowrap ${
                     activeTab === 'visual' ? 'bg-highlight text-white' : 'bg-white text-neutral-500 hover:text-ink'
                   }`}
                 >
                   <LayoutGrid size={12} />
-                  Visual
+                  {t.ui.visual}
                 </button>
                 <button
                   onClick={() => setActiveTab('notes')}
-                  className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${
+                  className={`px-2.5 md:px-3 py-2 text-[10px] font-black uppercase tracking-wider md:tracking-widest transition-colors flex items-center gap-1.5 whitespace-nowrap ${
                     activeTab === 'notes' ? 'bg-ink text-white' : 'bg-white text-neutral-500 hover:text-ink'
                   }`}
                 >
                   <FileText size={12} />
-                  Notas
+                  {t.ui.notes}
                 </button>
               </div>
 
               {activeTab !== 'notes' && filterCategory !== 'Tudo' && (
                 <button
                   onClick={() => setFilterCategory('Tudo')}
-                  className="px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest border border-border rounded-sm text-neutral-500 hover:text-ink hover:border-ink transition-colors"
+                  className="px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider md:tracking-widest border border-border rounded-sm text-neutral-500 hover:text-ink hover:border-ink transition-colors whitespace-nowrap flex-shrink-0"
                 >
-                  Ver Tudo
+                  {t.ui.seeAll}
                 </button>
               )}
 
-              <div className="relative" ref={settingsRef}>
+              <div className="relative flex-shrink-0" ref={settingsRef}>
                 <button
                   onClick={() => setIsSettingsOpen((prev) => !prev)}
                   className={`px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest border rounded-sm transition-colors flex items-center gap-1.5 ${
@@ -1086,14 +1139,42 @@ export default function App() {
                       ? 'border-ink text-ink bg-neutral-50'
                       : 'border-border text-neutral-500 hover:text-ink hover:border-ink'
                   }`}
-                  title="Opções"
-                  aria-label="Abrir opções"
+                  title={t.titles.options}
+                  aria-label={t.titles.openOptions}
                 >
                   <Settings size={13} />
                 </button>
 
                 {isSettingsOpen && (
-                  <div className="absolute right-0 mt-2 w-44 bg-white border border-border rounded-sm shadow-lg z-40 p-1">
+                  <div className="fixed left-4 right-4 top-24 md:absolute md:left-auto md:right-0 md:top-auto md:mt-2 md:w-56 bg-white border border-border rounded-sm shadow-lg z-50 p-1 max-h-[calc(100vh-7rem)] overflow-y-auto">
+                    <div className="px-3 py-2 border-b border-border mb-1">
+                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2">
+                        <Languages size={12} />
+                        {t.ui.language}
+                      </div>
+                      <div className="grid grid-cols-2 gap-1">
+                        <button
+                          onClick={() => setLanguage('pt')}
+                          className={`px-2 py-1.5 text-[8px] font-black uppercase tracking-wider border rounded-sm transition-colors truncate ${
+                            language === 'pt'
+                              ? 'bg-ink text-white border-ink'
+                              : 'bg-white text-neutral-500 border-border hover:text-ink'
+                          }`}
+                        >
+                          {t.ui.portuguese}
+                        </button>
+                        <button
+                          onClick={() => setLanguage('it')}
+                          className={`px-2 py-1.5 text-[8px] font-black uppercase tracking-wider border rounded-sm transition-colors truncate ${
+                            language === 'it'
+                              ? 'bg-ink text-white border-ink'
+                              : 'bg-white text-neutral-500 border-border hover:text-ink'
+                          }`}
+                        >
+                          {t.ui.italian}
+                        </button>
+                      </div>
+                    </div>
                     <button
                       onClick={() => {
                         handleExportBackup();
@@ -1102,7 +1183,7 @@ export default function App() {
                       className="w-full px-3 py-2 text-left text-[11px] font-bold uppercase tracking-widest text-neutral-600 hover:bg-neutral-50 hover:text-ink rounded-sm flex items-center gap-2"
                     >
                       <Download size={12} />
-                      Backup
+                      {t.ui.backup}
                     </button>
                     <button
                       onClick={() => {
@@ -1112,7 +1193,7 @@ export default function App() {
                       className="w-full px-3 py-2 text-left text-[11px] font-bold uppercase tracking-widest text-neutral-600 hover:bg-neutral-50 hover:text-ink rounded-sm flex items-center gap-2"
                     >
                       <Upload size={12} />
-                      Restaurar
+                      {t.ui.restore}
                     </button>
                   </div>
                 )}
@@ -1138,15 +1219,15 @@ export default function App() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Pesquisar marcações do dia..."
+                placeholder={t.placeholders.search}
                 className="w-full h-11 pl-10 pr-10 border-2 border-border rounded-sm text-sm font-medium outline-none focus:border-ink"
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-ink"
-                  title="Limpar pesquisa"
-                  aria-label="Limpar pesquisa"
+                  title={t.titles.clearSearch}
+                  aria-label={t.titles.clearSearch}
                 >
                   <X size={16} />
                 </button>
@@ -1158,15 +1239,15 @@ export default function App() {
                 <div className="border border-border rounded-sm p-3 bg-neutral-50 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">
-                      Tópico: Marcações do dia
+                      {t.ui.searchTopic}
                     </p>
                     <span className="text-[10px] font-bold text-neutral-400">
-                      {searchAgendaResults.length} resultado(s)
+                      {searchAgendaResults.length} {t.ui.results}
                     </span>
                   </div>
 
                   {visibleAgendaResults.length === 0 ? (
-                    <p className="text-sm text-neutral-400">Nenhuma marcação encontrada.</p>
+                    <p className="text-sm text-neutral-400">{t.ui.noResults}</p>
                   ) : (
                     <div className="space-y-1.5">
                       {visibleAgendaResults.map((result) => (
@@ -1181,7 +1262,7 @@ export default function App() {
                           <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 mt-1">
                             {result.referenceDateLabel} • {result.timeLabel} • {result.category}
                             {result.recurrenceLabel ? ` • ${result.recurrenceLabel}` : ''}
-                            {result.completedAtLabel ? ` • Feito às ${result.completedAtLabel}` : ''}
+                            {result.completedAtLabel ? ` • ${t.ui.doneAt} ${result.completedAtLabel}` : ''}
                           </p>
                         </button>
                       ))}
@@ -1190,7 +1271,7 @@ export default function App() {
 
                   {searchAgendaResults.length > visibleAgendaResults.length && (
                     <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
-                      Mostrando {visibleAgendaResults.length} de {searchAgendaResults.length}
+                      {t.ui.showing} {visibleAgendaResults.length} {t.ui.of} {searchAgendaResults.length}
                     </p>
                   )}
                 </div>
@@ -1201,20 +1282,20 @@ export default function App() {
           {activeTab === 'notes' ? (
             <div className="flex flex-col gap-4">
               <p className="text-sm text-neutral-500">
-                Espaço livre para anotações rápidas.
+                {t.ui.freeNotes}
               </p>
               <textarea
                 value={notes}
                 onChange={handleNotesChange}
-                placeholder="Escreva suas notas aqui..."
+                placeholder={t.placeholders.notes}
                 className="w-full flex-1 min-h-[62vh] md:min-h-[70vh] resize-y border-2 border-border rounded-sm p-4 md:p-5 text-base leading-relaxed text-ink outline-none focus:border-ink"
               />
               <div className="flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-widest text-neutral-400">
-                <span>{notes.length} chars</span>
+                <span>{notes.length} {t.ui.chars}</span>
                 <span className="text-right">
                   {notesUpdatedAt
-                    ? `Ultima atualizacao: ${format(notesUpdatedAt, 'dd/MM/yyyy HH:mm')}`
-                    : 'Sem atualizacao'}
+                    ? `${t.ui.lastUpdate} ${format(notesUpdatedAt, 'dd/MM/yyyy HH:mm')}`
+                    : t.ui.noUpdate}
                 </span>
               </div>
             </div>
@@ -1228,7 +1309,7 @@ export default function App() {
                       visualScope === 'day' ? 'bg-ink text-white' : 'bg-white text-neutral-500 hover:text-ink'
                     }`}
                   >
-                    Dia
+                    {t.ui.day}
                   </button>
                   <button
                     onClick={() => setVisualScope('week')}
@@ -1236,7 +1317,7 @@ export default function App() {
                       visualScope === 'week' ? 'bg-ink text-white' : 'bg-white text-neutral-500 hover:text-ink'
                     }`}
                   >
-                    Semana
+                    {t.ui.week}
                   </button>
                   <button
                     onClick={() => setVisualScope('all')}
@@ -1244,13 +1325,13 @@ export default function App() {
                       visualScope === 'all' ? 'bg-ink text-white' : 'bg-white text-neutral-500 hover:text-ink'
                     }`}
                   >
-                    Todos
+                    {t.ui.all}
                   </button>
                 </div>
 
                 {visualScope === 'week' && (
                   <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-500">
-                    {format(visualWeekRange.start, 'dd/MM/yy')} a {format(visualWeekRange.end, 'dd/MM/yy')}
+                    {format(visualWeekRange.start, 'dd/MM/yy')} {t.dateRangeSeparator} {format(visualWeekRange.end, 'dd/MM/yy')}
                   </span>
                 )}
               </div>
@@ -1258,21 +1339,21 @@ export default function App() {
               {visualItems.length === 0 ? (
                 <div className="py-20 md:py-24 text-center border-2 border-dashed border-border rounded-sm">
                   <LayoutGrid className="mx-auto mb-4 text-neutral-200" size={40} />
-                  <p className="text-neutral-400 font-bold uppercase text-[10px] tracking-widest">Sem itens para visualizar</p>
+                  <p className="text-neutral-400 font-bold uppercase text-[10px] tracking-widest">{t.ui.noVisualItems}</p>
                 </div>
               ) : (
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="p-4 border border-border rounded-sm bg-neutral-50">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">Total</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">{t.ui.total}</p>
                       <p className="text-2xl font-black text-ink">{visualSummary.total}</p>
                     </div>
                     <div className="p-4 border border-border rounded-sm bg-neutral-50">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">Pendentes</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">{t.ui.pending}</p>
                       <p className="text-2xl font-black text-ink">{visualSummary.pending}</p>
                     </div>
                     <div className="p-4 border border-border rounded-sm bg-neutral-50">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">Concluídos</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">{t.ui.completed}</p>
                       <p className="text-2xl font-black text-green-600">{visualSummary.completed}</p>
                     </div>
                   </div>
@@ -1293,10 +1374,10 @@ export default function App() {
                           <div className="flex items-center justify-between gap-3 mb-3">
                             <div>
                               <p className="text-sm font-black uppercase tracking-wider text-ink">
-                                {categoryCard.category || 'Sem categoria'}
+                                {categoryCard.category || t.ui.uncategorized}
                               </p>
                               <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
-                                {categoryCard.doneCount}/{categoryCard.total} concluídos
+                                {categoryCard.doneCount}/{categoryCard.total} {t.ui.completedLower}
                               </p>
                             </div>
                             <span className="text-xs font-black text-highlight">{completionRate}%</span>
@@ -1314,7 +1395,7 @@ export default function App() {
 
                           <div className="mt-3 pt-3 border-t border-border space-y-3">
                             {dayGroups.length === 0 ? (
-                              <p className="text-[11px] font-bold text-neutral-400">Sem marcações nesta categoria.</p>
+                              <p className="text-[11px] font-bold text-neutral-400">{t.ui.noCategoryItems}</p>
                             ) : (
                               dayGroups.map((group) => (
                                 <div key={`${categoryCard.category}-${group.dayKey}`} className="space-y-1.5">
@@ -1322,7 +1403,7 @@ export default function App() {
                                     onClick={() => openAgendaForDate(group.dayDate)}
                                     className="text-[12px] font-black text-neutral-600 hover:text-ink hover:underline transition-colors"
                                   >
-                                    Dia {format(group.dayDate, 'dd/MM/yy')}
+                                    {t.ui.day} {format(group.dayDate, 'dd/MM/yy')}
                                   </button>
                                   <div className="space-y-1.5">
                                     {group.entries.map((entry) => (
@@ -1344,7 +1425,7 @@ export default function App() {
                                           </span>
                                           {entry.isDone && getCompletionTimestamp(entry.item, group.dayKey) && (
                                             <span className="block mt-0.5 text-[10px] font-bold uppercase tracking-widest text-green-600">
-                                              Feito às {format(getCompletionTimestamp(entry.item, group.dayKey)!, 'HH:mm')}
+                                              {t.ui.doneAt} {format(getCompletionTimestamp(entry.item, group.dayKey)!, 'HH:mm')}
                                             </span>
                                           )}
                                         </span>
@@ -1367,7 +1448,7 @@ export default function App() {
               {filteredItems.length === 0 ? (
                 <div className="py-20 md:py-24 text-center border-2 border-dashed border-border rounded-sm">
                   <Clock className="mx-auto mb-4 text-neutral-200" size={40} />
-                  <p className="text-neutral-400 font-bold uppercase text-[10px] tracking-widest">Lista vazia</p>
+                  <p className="text-neutral-400 font-bold uppercase text-[10px] tracking-widest">{t.ui.emptyList}</p>
                 </div>
               ) : (
                 <AnimatePresence mode="popLayout" initial={false}>
@@ -1435,13 +1516,13 @@ export default function App() {
                           {item.recurrence !== 'none' && (
                             <div className="text-[9px] font-bold text-highlight uppercase tracking-[0.2em] flex items-center justify-end gap-1">
                               <Repeat size={10} />
-                              {RECURRENCE_OPTIONS.find(o => o.value === item.recurrence)?.label}
+                              {getRecurrenceLabel(item.recurrence)}
                             </div>
                           )}
                           {isDone && completedAt && (
                             <div className="text-[9px] font-bold text-green-600 uppercase tracking-[0.2em] flex items-center justify-end gap-1">
                               <CheckCircle2 size={10} />
-                              Feito às {format(completedAt, 'HH:mm')}
+                              {t.ui.doneAt} {format(completedAt, 'HH:mm')}
                             </div>
                           )}
                           <div className="flex md:flex-col items-center md:items-end justify-between md:justify-end gap-2 mt-2 md:mt-0">
@@ -1455,13 +1536,13 @@ export default function App() {
                               }}
                               className="text-highlight hover:underline text-[10px] font-bold uppercase transition-colors"
                             >
-                              Editar
+                              {t.ui.edit}
                             </button>
                             <button 
                               onClick={() => setDeletingItem(item)}
                               className="text-red-500 hover:text-red-700 text-[10px] font-bold uppercase transition-colors"
                             >
-                              Excluir
+                              {t.ui.delete}
                             </button>
                           </div>
                         </div>
@@ -1479,7 +1560,7 @@ export default function App() {
           <div className="bg-white border border-border p-5 rounded-sm shadow-sm space-y-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xs font-black uppercase tracking-[0.2em] text-neutral-500">
-                {format(currentMonth, 'MMMM yyyy', { locale: ptBR })}
+                {format(currentMonth, 'MMMM yyyy', { locale: dateLocale })}
               </h2>
               <div className="flex gap-2">
                 <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-neutral-100 rounded-sm border border-transparent hover:border-border transition-all"><ChevronLeft size={16} /></button>
@@ -1488,7 +1569,7 @@ export default function App() {
             </div>
             
             <div className="grid grid-cols-7 gap-1">
-              {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((day, index) => (
+              {t.weekdays.map((day, index) => (
                 <div key={`${day}-${index}`} className="h-8 flex items-center justify-center text-[10px] font-bold text-neutral-300">
                   {day}
                 </div>
@@ -1520,7 +1601,7 @@ export default function App() {
                         className={`absolute inset-0 flex items-center justify-center text-[26px] font-black leading-none pointer-events-none ${
                           isSelected ? 'text-white/35' : 'text-ink/30'
                         }`}
-                        title="Dia atual"
+                        title={t.titles.today}
                       >
                         X
                       </span>
@@ -1530,7 +1611,7 @@ export default function App() {
                       <span className="absolute bottom-1 left-1/2 -translate-x-1/2 flex items-center gap-1 z-10">
                         <span
                           className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-green-300' : 'bg-green-600'}`}
-                          title="Tarefas concluídas neste dia"
+                          title={t.titles.completedOnDay}
                         />
                       </span>
                     )}
@@ -1546,20 +1627,20 @@ export default function App() {
               }}
               className="w-full mt-4 p-3 border-2 border-ink bg-white text-ink text-[11px] font-black uppercase tracking-widest hover:bg-ink hover:text-white transition-all rounded-sm"
             >
-              Hoje
+              {t.ui.today}
             </button>
           </div>
 
           <div className="space-y-4">
-            <h4 className="text-[11px] font-black text-neutral-400 uppercase tracking-widest">Informações</h4>
+            <h4 className="text-[11px] font-black text-neutral-400 uppercase tracking-widest">{t.ui.info}</h4>
             <div className="p-5 bg-white border-2 border-ink rounded-sm space-y-3">
               <p className="text-[13px] leading-relaxed font-bold italic">
-                Sua agenda é 100% privada e reside apenas neste dispositivo.
+                {t.ui.privacy}
               </p>
               <div className="h-0.5 bg-ink w-full opacity-10" />
               <p className="text-[13px] leading-relaxed flex items-center gap-2 font-medium">
                 <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                Sistema Operacional
+                {t.ui.operational}
               </p>
             </div>
           </div>
@@ -1574,28 +1655,28 @@ export default function App() {
           className={`flex flex-col items-center justify-center py-2 gap-1 transition-all ${activeTab === 'list' ? 'text-highlight' : 'text-neutral-400'}`}
         >
           <Clock size={20} className={activeTab === 'list' ? 'fill-highlight/10' : ''} />
-          <span className="text-[10px] font-black uppercase tracking-widest">Agenda</span>
+          <span className="text-[10px] font-black uppercase tracking-widest">{t.ui.agenda}</span>
         </button>
         <button 
           onClick={() => setActiveTab('visual')}
           className={`flex flex-col items-center justify-center py-2 gap-1 transition-all ${activeTab === 'visual' ? 'text-highlight' : 'text-neutral-400'}`}
         >
           <LayoutGrid size={20} className={activeTab === 'visual' ? 'fill-highlight/10' : ''} />
-          <span className="text-[10px] font-black uppercase tracking-widest">Visual</span>
+          <span className="text-[10px] font-black uppercase tracking-widest">{t.ui.visual}</span>
         </button>
         <button 
           onClick={() => setActiveTab('calendar')}
           className={`flex flex-col items-center justify-center py-2 gap-1 transition-all ${activeTab === 'calendar' ? 'text-highlight' : 'text-neutral-400'}`}
         >
           <CalendarDays size={20} className={activeTab === 'calendar' ? 'fill-highlight/10' : ''} />
-          <span className="text-[10px] font-black uppercase tracking-widest">Calendário</span>
+          <span className="text-[10px] font-black uppercase tracking-widest">{t.ui.calendar}</span>
         </button>
         <button 
           onClick={() => setActiveTab('notes')}
           className={`flex flex-col items-center justify-center py-2 gap-1 transition-all ${activeTab === 'notes' ? 'text-highlight' : 'text-neutral-400'}`}
         >
           <FileText size={20} className={activeTab === 'notes' ? 'fill-highlight/10' : ''} />
-          <span className="text-[10px] font-black uppercase tracking-widest">Notas</span>
+          <span className="text-[10px] font-black uppercase tracking-widest">{t.ui.notes}</span>
         </button>
       </nav>
 
@@ -1616,11 +1697,11 @@ export default function App() {
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="relative bg-white border-4 border-ink p-6 md:p-8 w-full max-w-md shadow-[10px_10px_0px_#000]"
             >
-              <h3 className="text-xl font-black uppercase tracking-tighter mb-6">Editar Compromisso</h3>
+              <h3 className="text-xl font-black uppercase tracking-tighter mb-6">{t.editModal.title}</h3>
               
               <div className="space-y-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase text-neutral-400">Texto</label>
+                  <label className="text-[10px] font-bold uppercase text-neutral-400">{t.editModal.text}</label>
                   <input 
                     type="text" 
                     value={editText}
@@ -1631,7 +1712,7 @@ export default function App() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-neutral-400">Hora</label>
+                    <label className="text-[10px] font-bold uppercase text-neutral-400">{t.editModal.time}</label>
                     <input 
                       type="time" 
                       value={editTime}
@@ -1640,7 +1721,7 @@ export default function App() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-neutral-400">Categoria</label>
+                    <label className="text-[10px] font-bold uppercase text-neutral-400">{t.editModal.category}</label>
                     <select 
                       value={editCategory}
                       onChange={(e) => setEditCategory(e.target.value)}
@@ -1652,13 +1733,13 @@ export default function App() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase text-neutral-400">Repetir</label>
+                  <label className="text-[10px] font-bold uppercase text-neutral-400">{t.editModal.repeat}</label>
                   <select 
                     value={editRecurrence}
                     onChange={(e) => setEditRecurrence(e.target.value as RecurrenceType)}
                     className="w-full border-2 border-ink p-2 font-bold outline-none rounded-sm"
                   >
-                    {RECURRENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    {RECURRENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{t.recurrence[o.labelKey]}</option>)}
                   </select>
                 </div>
               </div>
@@ -1668,13 +1749,13 @@ export default function App() {
                   onClick={() => setEditingItem(null)}
                   className="flex-1 p-3 border-2 border-ink font-bold uppercase text-sm hover:bg-neutral-50 transition-colors"
                 >
-                  Cancelar
+                  {t.editModal.cancel}
                 </button>
                 <button 
                   onClick={handleUpdateItem}
                   className="flex-1 p-3 bg-ink text-white font-bold uppercase text-sm hover:opacity-90 transition-opacity"
                 >
-                  Salvar
+                  {t.editModal.save}
                 </button>
               </div>
             </motion.div>
@@ -1708,15 +1789,15 @@ export default function App() {
               </div>
 
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 mb-2">
-                Desfazer conclusão
+                {t.undoModal.eyebrow}
               </p>
               <h3 id="undo-completion-title" className="text-xl font-black uppercase tracking-tighter mb-3 text-ink">
-                Perder horário salvo?
+                {t.undoModal.title}
               </h3>
               <p className="text-sm font-medium leading-relaxed text-neutral-600 mb-4">
-                Esta tarefa foi marcada como feita em {undoingCompletion.dateLabel}
-                {undoingCompletion.completedAtLabel ? ` às ${undoingCompletion.completedAtLabel}` : ''}.
-                Ao desfazer, esse horário será apagado.
+                {t.undoModal.beforeDate} {undoingCompletion.dateLabel}
+                {undoingCompletion.completedAtLabel ? ` ${t.ui.timeConnector} ${undoingCompletion.completedAtLabel}` : ''}.
+                {t.undoModal.afterDate}
               </p>
               <div className="p-3 border border-border bg-neutral-50 rounded-sm mb-7">
                 <p className="text-sm font-bold text-ink break-words">
@@ -1729,13 +1810,13 @@ export default function App() {
                   onClick={() => setUndoingCompletion(null)}
                   className="flex-1 p-3 border-2 border-ink font-bold uppercase text-sm hover:bg-neutral-50 transition-colors rounded-sm"
                 >
-                  Manter
+                  {t.undoModal.keep}
                 </button>
                 <button
                   onClick={confirmUndoCompletion}
                   className="flex-1 p-3 bg-red-600 text-white border-2 border-ink font-bold uppercase text-sm hover:bg-red-700 transition-colors shadow-[4px_4px_0px_#000] rounded-sm"
                 >
-                  Desfazer
+                  {t.undoModal.undo}
                 </button>
               </div>
             </motion.div>
@@ -1760,11 +1841,11 @@ export default function App() {
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="relative bg-white border-4 border-ink p-6 md:p-8 w-full max-w-sm shadow-[10px_10px_0px_#000]"
             >
-              <h3 className="text-xl font-black uppercase tracking-tighter mb-4 text-red-600">Excluir Compromisso</h3>
+              <h3 className="text-xl font-black uppercase tracking-tighter mb-4 text-red-600">{t.deleteModal.title}</h3>
               <p className="text-sm font-medium mb-8 text-neutral-600">
                 {deletingItem.recurrence === 'none'
-                  ? 'Tem certeza que deseja excluir este compromisso?'
-                  : 'Este é um compromisso recorrente. Como deseja excluí-lo?'}
+                  ? t.deleteModal.single
+                  : t.deleteModal.recurring}
               </p>
 
               {deletingItem.recurrence === 'none' ? (
@@ -1773,13 +1854,13 @@ export default function App() {
                     onClick={() => setDeletingItem(null)}
                     className="flex-1 p-3 border-2 border-ink font-bold uppercase text-sm hover:bg-neutral-50 transition-colors"
                   >
-                    Cancelar
+                    {t.deleteModal.cancel}
                   </button>
                   <button
                     onClick={() => deleteItem(deletingItem.id, true)}
                     className="flex-1 p-3 bg-red-600 text-white border-2 border-ink font-bold uppercase text-sm hover:bg-red-700 transition-colors shadow-[4px_4px_0px_#000]"
                   >
-                    Excluir
+                    {t.deleteModal.delete}
                   </button>
                 </div>
               ) : (
@@ -1788,21 +1869,21 @@ export default function App() {
                     onClick={() => deleteItem(deletingItem.id, false)}
                     className="w-full p-4 border-2 border-ink font-bold uppercase text-[11px] tracking-widest hover:bg-neutral-50 transition-all flex items-center justify-between group"
                   >
-                    <span>Apenas desta data</span>
+                    <span>{t.deleteModal.onlyThisDate}</span>
                     <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
                   </button>
                   <button 
                     onClick={() => deleteItem(deletingItem.id, true)}
                     className="w-full p-4 bg-red-600 text-white border-2 border-ink font-bold uppercase text-[11px] tracking-widest hover:bg-red-700 transition-all flex items-center justify-between group shadow-[4px_4px_0px_#000]"
                   >
-                    <span>Todas as ocorrências</span>
+                    <span>{t.deleteModal.allOccurrences}</span>
                     <Trash2 size={16} className="group-hover:scale-110 transition-transform" />
                   </button>
                   <button 
                     onClick={() => setDeletingItem(null)}
                     className="w-full p-4 text-neutral-400 font-bold uppercase text-[10px] tracking-widest hover:text-ink transition-colors"
                   >
-                    Cancelar
+                    {t.deleteModal.cancel}
                   </button>
                 </div>
               )}
@@ -1832,7 +1913,7 @@ export default function App() {
                 onClick={() => setViewingImage(null)}
                 className="absolute -top-12 right-0 text-white hover:text-highlight transition-colors flex items-center gap-2 font-bold uppercase text-[10px] tracking-widest"
               >
-                <X size={20} /> FECHAR
+                <X size={20} /> {t.ui.close}
               </button>
               <img 
                 src={viewingImage} 
