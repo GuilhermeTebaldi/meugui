@@ -23,6 +23,7 @@ import {
   Repeat,
   Zap,
   Camera,
+  Mic,
   X,
   Image as ImageIcon,
   LayoutGrid,
@@ -59,7 +60,78 @@ import { storage } from './lib/storage';
 
 type Language = 'pt' | 'it';
 
+type BrowserSpeechRecognitionResult = {
+  length: number;
+  isFinal?: boolean;
+  [index: number]: { transcript: string };
+};
+
+type BrowserSpeechRecognitionEvent = {
+  results: ArrayLike<BrowserSpeechRecognitionResult>;
+  resultIndex?: number;
+};
+
+type BrowserSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  start: () => void;
+  abort: () => void;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
 const LANGUAGE_STORAGE_KEY = 'agenda_mental_language';
+const RECENT_TEXTS_STORAGE_KEY = 'agenda_mental_recent_texts';
+const LONG_PRESS_MS = 550;
+
+const getSpeechRecognitionConstructor = (): BrowserSpeechRecognitionConstructor | null => {
+  if (typeof window === 'undefined') return null;
+
+  const speechWindow = window as Window & {
+    SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+  };
+
+  return speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition || null;
+};
+
+const normalizeRecentTexts = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+
+  const seen = new Set<string>();
+  const texts: string[] = [];
+
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const text = item.trim().replace(/\s+/g, ' ');
+    const key = text.toLocaleLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    texts.push(text);
+  }
+
+  return texts;
+};
+
+const getStoredRecentTexts = (): string[] => {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    return normalizeRecentTexts(JSON.parse(localStorage.getItem(RECENT_TEXTS_STORAGE_KEY) || '[]'));
+  } catch {
+    return [];
+  }
+};
+
+const saveRecentTexts = (texts: string[]) => {
+  localStorage.setItem(RECENT_TEXTS_STORAGE_KEY, JSON.stringify(normalizeRecentTexts(texts)));
+};
 
 const getInitialLanguage = (): Language => {
   if (typeof window === 'undefined') return 'pt';
@@ -71,8 +143,8 @@ const TRANSLATIONS = {
     recurrence: { none: 'Não repetir', daily: 'Diário', weekly: 'Semanal', monthly: 'Mensal', workdays: 'Seg-Sex', monSat: 'Seg-Sáb' },
     alerts: { load: 'Nao foi possivel carregar os dados salvos neste dispositivo.', save: 'Falha ao salvar. Faça um backup agora para evitar perdas.', notes: 'Nao foi possivel salvar o bloco de notas neste dispositivo.', invalidBackup: 'Backup invalido. Selecione um arquivo JSON gerado pelo sistema.', invalidImage: 'Nao foi possivel abrir essa foto no navegador. No iPhone, ajuste a camera para Mais Compativel/JPEG ou escolha uma foto JPG/PNG.' },
     placeholders: { task: 'Ex: Preciso ir ao médico às 14h', newCategory: 'Nova...', search: 'Pesquisar marcações do dia...', notes: 'Escreva suas notas aqui...' },
-    titles: { addNow: 'Registrar agora', addNowDisabled: 'O botão Agora só funciona no dia atual', collapseOpen: 'Mostrar formulário', collapseClose: 'Ver apenas compromissos', options: 'Opções', openOptions: 'Abrir opções', clearSearch: 'Limpar pesquisa', today: 'Dia atual', completedOnDay: 'Tarefas concluídas neste dia' },
-    ui: { all: 'Tudo', now: 'Agora', today: 'Hoje', schedule: 'Agendar', repeat: 'Repetir:', notesTitle: 'Bloco de Notas', privateNotes: 'Notas', appointments: ' notas', list: 'Lista', visual: 'Visual', notes: 'Notas', calendar: 'Calendário', seeAll: 'Ver Tudo', backup: 'Backup', restore: 'Restaurar', language: 'Linguagem', portuguese: 'Português', italian: 'Italiano', searchTopic: 'Tópico: Marcações do dia', results: 'resultado(s)', noResults: 'Nenhuma marcação encontrada.', showing: 'Mostrando', of: 'de', freeNotes: 'Espaço livre para anotações rápidas.', chars: 'chars', lastUpdate: 'Ultima atualizacao:', noUpdate: 'Sem atualizacao', day: 'Dia', week: 'Semana', total: 'Total', pending: 'Pendentes', completed: 'Concluídos', noVisualItems: 'Sem itens para visualizar', uncategorized: 'Sem categoria', completedLower: 'concluídos', noCategoryItems: 'Sem marcações nesta categoria.', emptyList: 'Lista vazia', info: 'Informações', privacy: 'Sua agenda é 100% privada e reside apenas neste dispositivo.', operational: 'Sistema Operacional', agenda: 'Agenda', edit: 'Editar', delete: 'Excluir', close: 'FECHAR', doneAt: 'Feito às', timeConnector: 'às' },
+    titles: { addNow: 'Registrar agora', addNowDisabled: 'O botão Agora só funciona no dia atual', collapseOpen: 'Mostrar formulário', collapseClose: 'Ver apenas compromissos', options: 'Opções', openOptions: 'Abrir opções', clearSearch: 'Limpar pesquisa', today: 'Dia atual', completedOnDay: 'Tarefas concluídas neste dia', speechInput: 'Falar para escrever', speechInputListening: 'Ouvindo...' },
+    ui: { all: 'Tudo', now: 'Agora', today: 'Hoje', schedule: 'Agendar', repeat: 'Repetir:', recentTexts: 'Recentes', notesTitle: 'Bloco de Notas', privateNotes: 'Notas', appointments: ' notas', list: 'Lista', visual: 'Visual', notes: 'Notas', calendar: 'Calendário', seeAll: 'Ver Tudo', backup: 'Backup', restore: 'Restaurar', language: 'Linguagem', portuguese: 'Português', italian: 'Italiano', searchTopic: 'Tópico: Marcações do dia', results: 'resultado(s)', noResults: 'Nenhuma marcação encontrada.', showing: 'Mostrando', of: 'de', freeNotes: 'Espaço livre para anotações rápidas.', chars: 'chars', lastUpdate: 'Ultima atualizacao:', noUpdate: 'Sem atualizacao', day: 'Dia', week: 'Semana', total: 'Total', pending: 'Pendentes', completed: 'Concluídos', noVisualItems: 'Sem itens para visualizar', uncategorized: 'Sem categoria', completedLower: 'concluídos', noCategoryItems: 'Sem marcações nesta categoria.', emptyList: 'Lista vazia', info: 'Informações', privacy: 'Sua agenda é 100% privada e reside apenas neste dispositivo.', operational: 'Sistema Operacional', agenda: 'Agenda', edit: 'Editar', delete: 'Excluir', close: 'FECHAR', doneAt: 'Feito às', timeConnector: 'às' },
     editModal: { title: 'Editar Compromisso', text: 'Texto', time: 'Hora', category: 'Categoria', repeat: 'Repetir', cancel: 'Cancelar', save: 'Salvar' },
     undoModal: { eyebrow: 'Desfazer conclusão', title: 'Perder horário salvo?', beforeDate: 'Esta tarefa foi marcada como feita em', afterDate: 'Ao desfazer, esse horário será apagado.', keep: 'Manter', undo: 'Desfazer' },
     deleteModal: { title: 'Excluir Compromisso', single: 'Tem certeza que deseja excluir este compromisso?', recurring: 'Este é um compromisso recorrente. Como deseja excluí-lo?', cancel: 'Cancelar', delete: 'Excluir', onlyThisDate: 'Apenas desta data', allOccurrences: 'Todas as ocorrências' },
@@ -84,8 +156,8 @@ const TRANSLATIONS = {
     recurrence: { none: 'Non ripetere', daily: 'Giornaliero', weekly: 'Settimanale', monthly: 'Mensile', workdays: 'Lun-Ven', monSat: 'Lun-Sab' },
     alerts: { load: 'Non è stato possibile caricare i dati salvati su questo dispositivo.', save: 'Salvataggio non riuscito. Crea subito un backup per evitare perdite.', notes: 'Non è stato possibile salvare il blocco note su questo dispositivo.', invalidBackup: 'Backup non valido. Seleziona un file JSON generato dal sistema.', invalidImage: 'Non è stato possibile aprire questa foto nel browser. Su iPhone, imposta la fotocamera su Massima compatibilità/JPEG oppure scegli una foto JPG/PNG.' },
     placeholders: { task: 'Es: Devo andare dal medico alle 14:00', newCategory: 'Nuova...', search: 'Cerca le voci del giorno...', notes: 'Scrivi qui le tue note...' },
-    titles: { addNow: 'Registra adesso', addNowDisabled: 'Il pulsante Adesso funziona solo nel giorno corrente', collapseOpen: 'Mostra modulo', collapseClose: 'Mostra solo impegni', options: 'Opzioni', openOptions: 'Apri opzioni', clearSearch: 'Cancella ricerca', today: 'Giorno corrente', completedOnDay: 'Attività completate in questo giorno' },
-    ui: { all: 'Tutto', now: 'Adesso', today: 'Oggi', schedule: 'Programma', repeat: 'Ripeti:', notesTitle: 'Blocco Note', privateNotes: 'Note private', appointments: 'Impegni', list: 'Lista', visual: 'Visuale', notes: 'Note', calendar: 'Calendario', seeAll: 'Vedi Tutto', backup: 'Backup', restore: 'Ripristina', language: 'Lingua', portuguese: 'Portoghese', italian: 'Italiano', searchTopic: 'Argomento: Voci del giorno', results: 'risultato/i', noResults: 'Nessuna voce trovata.', showing: 'Mostrando', of: 'di', freeNotes: 'Spazio libero per annotazioni rapide.', chars: 'caratteri', lastUpdate: 'Ultimo aggiornamento:', noUpdate: 'Nessun aggiornamento', day: 'Giorno', week: 'Settimana', total: 'Totale', pending: 'In sospeso', completed: 'Completati', noVisualItems: 'Nessun elemento da visualizzare', uncategorized: 'Senza categoria', completedLower: 'completati', noCategoryItems: 'Nessuna voce in questa categoria.', emptyList: 'Lista vuota', info: 'Informazioni', privacy: 'La tua agenda è privata al 100% e resta solo su questo dispositivo.', operational: 'Sistema operativo', agenda: 'Agenda', edit: 'Modifica', delete: 'Elimina', close: 'CHIUDI', doneAt: 'Fatto alle', timeConnector: 'alle' },
+    titles: { addNow: 'Registra adesso', addNowDisabled: 'Il pulsante Adesso funziona solo nel giorno corrente', collapseOpen: 'Mostra modulo', collapseClose: 'Mostra solo impegni', options: 'Opzioni', openOptions: 'Apri opzioni', clearSearch: 'Cancella ricerca', today: 'Giorno corrente', completedOnDay: 'Attività completate in questo giorno', speechInput: 'Parla per scrivere', speechInputListening: 'In ascolto...' },
+    ui: { all: 'Tutto', now: 'Adesso', today: 'Oggi', schedule: 'Programma', repeat: 'Ripeti:', recentTexts: 'Recenti', notesTitle: 'Blocco Note', privateNotes: 'Note private', appointments: 'Impegni', list: 'Lista', visual: 'Visuale', notes: 'Note', calendar: 'Calendario', seeAll: 'Vedi Tutto', backup: 'Backup', restore: 'Ripristina', language: 'Lingua', portuguese: 'Portoghese', italian: 'Italiano', searchTopic: 'Argomento: Voci del giorno', results: 'risultato/i', noResults: 'Nessuna voce trovata.', showing: 'Mostrando', of: 'di', freeNotes: 'Spazio libero per annotazioni rapide.', chars: 'caratteri', lastUpdate: 'Ultimo aggiornamento:', noUpdate: 'Nessun aggiornamento', day: 'Giorno', week: 'Settimana', total: 'Totale', pending: 'In sospeso', completed: 'Completati', noVisualItems: 'Nessun elemento da visualizzare', uncategorized: 'Senza categoria', completedLower: 'completati', noCategoryItems: 'Nessuna voce in questa categoria.', emptyList: 'Lista vuota', info: 'Informazioni', privacy: 'La tua agenda è privata al 100% e resta solo su questo dispositivo.', operational: 'Sistema operativo', agenda: 'Agenda', edit: 'Modifica', delete: 'Elimina', close: 'CHIUDI', doneAt: 'Fatto alle', timeConnector: 'alle' },
     editModal: { title: 'Modifica Impegno', text: 'Testo', time: 'Ora', category: 'Categoria', repeat: 'Ripeti', cancel: 'Annulla', save: 'Salva' },
     undoModal: { eyebrow: 'Annulla completamento', title: "Perdere l'orario salvato?", beforeDate: 'Questa attività è stata segnata come fatta il', afterDate: 'Se annulli, questo orario verrà cancellato.', keep: 'Mantieni', undo: 'Annulla' },
     deleteModal: { title: 'Elimina Impegno', single: 'Sei sicuro di voler eliminare questo impegno?', recurring: 'Questo è un impegno ricorrente. Come vuoi eliminarlo?', cancel: 'Annulla', delete: 'Elimina', onlyThisDate: 'Solo questa data', allOccurrences: 'Tutte le occorrenze' },
@@ -135,6 +207,9 @@ export default function App() {
 
   const [items, setItems] = useState<AgendaItem[]>([]);
   const [inputText, setInputText] = useState('');
+  const [recentTexts, setRecentTexts] = useState<string[]>(getStoredRecentTexts);
+  const [isRecentTextsOpen, setIsRecentTextsOpen] = useState(false);
+  const [recentTextToDelete, setRecentTextToDelete] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -152,6 +227,7 @@ export default function App() {
   const [notesUpdatedAt, setNotesUpdatedAt] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
+  const [isListeningToSpeech, setIsListeningToSpeech] = useState(false);
 
   // Edit/Delete Modals Mode
   const [editingItem, setEditingItem] = useState<AgendaItem | null>(null);
@@ -169,6 +245,12 @@ export default function App() {
   
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const inputAreaRef = useRef<HTMLDivElement>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const speechInputBaseRef = useRef('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -195,6 +277,13 @@ export default function App() {
         setCategories(savedCats);
         setNotes(savedNotes.content);
         setNotesUpdatedAt(savedNotes.updatedAt);
+        const storedRecentTexts = getStoredRecentTexts();
+        const itemTexts = [...savedItems]
+          .sort((a, b) => b.timestamp - a.timestamp)
+          .map((item) => item.text);
+        const nextRecentTexts = normalizeRecentTexts([...storedRecentTexts, ...itemTexts]);
+        setRecentTexts(nextRecentTexts);
+        saveRecentTexts(nextRecentTexts);
         if (savedCats.length > 0) {
           setSelectedCategory(savedCats[0]);
         }
@@ -228,6 +317,29 @@ export default function App() {
       document.removeEventListener('touchstart', closeOnOutsideClick);
     };
   }, [isSettingsOpen]);
+
+  useEffect(() => {
+    if (!isRecentTextsOpen) return;
+
+    const closeOnOutsideClick = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+      if (inputAreaRef.current && !inputAreaRef.current.contains(target)) {
+        setIsRecentTextsOpen(false);
+        setRecentTextToDelete(null);
+      }
+    };
+
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+    };
+  }, [isRecentTextsOpen]);
+
+  useEffect(() => {
+    return () => {
+      speechRecognitionRef.current?.abort();
+    };
+  }, []);
 
   const saveItemsSafely = async (nextItems: AgendaItem[]) => {
     try {
@@ -447,6 +559,129 @@ export default function App() {
     if (selectedCategory === cat) setSelectedCategory(updated[0] || '');
   };
 
+  const rememberRecentText = (text: string) => {
+    const nextRecentTexts = normalizeRecentTexts([text, ...recentTexts]);
+    setRecentTexts(nextRecentTexts);
+    saveRecentTexts(nextRecentTexts);
+  };
+
+  const handleRecentTextSelect = (text: string) => {
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
+    }
+
+    rememberRecentText(text);
+    setInputText(text);
+    setRecentTextToDelete(null);
+    setIsRecentTextsOpen(false);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const handleRecentTextDelete = (text: string) => {
+    const nextRecentTexts = recentTexts.filter((item) => item !== text);
+    setRecentTexts(nextRecentTexts);
+    saveRecentTexts(nextRecentTexts);
+    setRecentTextToDelete(null);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const startRecentTextLongPress = (text: string) => {
+    longPressTriggeredRef.current = false;
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+    }
+
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      setRecentTextToDelete(text);
+      if (navigator.vibrate) {
+        navigator.vibrate(12);
+      }
+    }, LONG_PRESS_MS);
+  };
+
+  const clearRecentTextLongPress = () => {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleSpeechInput = () => {
+    inputRef.current?.focus();
+    setIsRecentTextsOpen(false);
+    setRecentTextToDelete(null);
+
+    if (speechRecognitionRef.current) {
+      speechRecognitionRef.current.abort();
+      speechRecognitionRef.current = null;
+      setIsListeningToSpeech(false);
+      return;
+    }
+
+    const SpeechRecognition = getSpeechRecognitionConstructor();
+    if (!SpeechRecognition) {
+      return;
+    }
+
+    speechInputBaseRef.current = inputText.trim();
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = language === 'it' ? 'it-IT' : 'pt-BR';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    let finalTranscript = '';
+
+    recognition.onstart = () => {
+      setIsListeningToSpeech(true);
+    };
+
+    recognition.onresult = (event) => {
+      let interimTranscript = '';
+
+      for (let index = event.resultIndex || 0; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result[0]?.transcript || '';
+        if (result.isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      const spokenText = (finalTranscript || interimTranscript).trim();
+      if (!spokenText) return;
+
+      const baseText = speechInputBaseRef.current;
+      setInputText(baseText ? `${baseText} ${spokenText}` : spokenText);
+    };
+
+    recognition.onerror = () => {
+      setIsListeningToSpeech(false);
+      speechRecognitionRef.current = null;
+      inputRef.current?.focus();
+    };
+
+    recognition.onend = () => {
+      setIsListeningToSpeech(false);
+      speechRecognitionRef.current = null;
+      inputRef.current?.focus();
+    };
+
+    speechRecognitionRef.current = recognition;
+
+    try {
+      recognition.start();
+    } catch {
+      setIsListeningToSpeech(false);
+      speechRecognitionRef.current = null;
+      inputRef.current?.focus();
+    }
+  };
+
   const handleAddItem = (isSpecificDay: boolean = false) => {
     if (!inputText.trim()) return;
     if (!isSpecificDay && !isToday(selectedDate)) return;
@@ -474,8 +709,11 @@ export default function App() {
 
     const newItems = [...items, newItem];
     setItems(newItems);
+    rememberRecentText(inputText);
     void saveItemsSafely(newItems);
     setInputText('');
+    setIsRecentTextsOpen(false);
+    setRecentTextToDelete(null);
     setPendingImage(null);
     // Reinicia o tempo para o momento atual para o próximo item
     setSelectedTime(format(new Date(), 'HH:mm'));
@@ -899,6 +1137,12 @@ export default function App() {
     return eachDayOfInterval({ start, end });
   }, [currentMonth]);
 
+  const visibleRecentTexts = useMemo(() => {
+    const query = inputText.trim().toLocaleLowerCase();
+    if (!query) return recentTexts;
+    return recentTexts.filter((text) => text.toLocaleLowerCase().includes(query));
+  }, [inputText, recentTexts]);
+
   return (
     <div className="h-screen flex flex-col bg-bg text-ink selection:bg-highlight/20 overflow-hidden">
       {/* Header */}
@@ -910,16 +1154,44 @@ export default function App() {
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden space-y-4 md:space-y-6 mb-4"
+                className="overflow-visible space-y-4 md:space-y-6 mb-4"
               >
+                <AnimatePresence>
+                  {isRecentTextsOpen && visibleRecentTexts.length > 0 && (
+                    <motion.button
+                      type="button"
+                      aria-label={t.ui.close}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      onClick={() => {
+                        setIsRecentTextsOpen(false);
+                        setRecentTextToDelete(null);
+                      }}
+                      className="fixed inset-0 z-30 cursor-default bg-ink/25 backdrop-blur-[2px]"
+                    />
+                  )}
+                </AnimatePresence>
                 <div className="flex flex-col md:flex-row gap-3">
-                  <div className="flex-grow relative">
+                  <div ref={inputAreaRef} className="flex-grow relative z-40">
                     <input
+                      ref={inputRef}
                       type="text"
                       placeholder={t.placeholders.task}
-                      className="w-full h-[50px] md:h-[60px] pl-4 md:pl-6 pr-12 text-lg md:text-xl bg-white border-2 border-ink rounded-sm outline-none placeholder:text-neutral-400"
+                      className="w-full h-[50px] md:h-[60px] pl-4 md:pl-6 pr-24 text-lg md:text-xl bg-white border-2 border-ink rounded-sm outline-none placeholder:text-neutral-400"
                       value={inputText}
-                      onChange={(e) => setInputText(e.target.value)}
+                      onFocus={() => {
+                        if (recentTexts.length > 0) {
+                          setIsRecentTextsOpen(true);
+                        }
+                      }}
+                      onChange={(e) => {
+                        setInputText(e.target.value);
+                        if (recentTexts.length > 0) {
+                          setIsRecentTextsOpen(true);
+                        }
+                        setRecentTextToDelete(null);
+                      }}
                       onKeyDown={(e) => e.key === 'Enter' && handleAddItem(false)}
                     />
                     <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
@@ -940,6 +1212,19 @@ export default function App() {
                       >
                         <Camera size={20} />
                       </button>
+                      <button
+                        type="button"
+                        onClick={handleSpeechInput}
+                        className={`p-2 rounded-sm transition-colors ${
+                          isListeningToSpeech
+                            ? 'bg-highlight text-white'
+                            : 'text-neutral-400 hover:text-ink'
+                        }`}
+                        title={isListeningToSpeech ? t.titles.speechInputListening : t.titles.speechInput}
+                        aria-label={isListeningToSpeech ? t.titles.speechInputListening : t.titles.speechInput}
+                      >
+                        <Mic size={20} />
+                      </button>
                       <input 
                         type="file" 
                         ref={fileInputRef} 
@@ -949,6 +1234,69 @@ export default function App() {
                         className="hidden" 
                       />
                     </div>
+
+                    <AnimatePresence>
+                      {isRecentTextsOpen && visibleRecentTexts.length > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -6 }}
+                          className="absolute left-0 right-0 top-[calc(100%+8px)] z-50 max-h-[min(56vh,390px)] overflow-y-auto overscroll-contain rounded-sm border-2 border-ink bg-white shadow-[6px_6px_0_rgba(33,37,41,0.18)]"
+                        >
+                          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-neutral-200 bg-white px-3 py-2">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">
+                              {t.ui.recentTexts}
+                            </span>
+                            <span className="text-[10px] font-bold tabular-nums text-neutral-400">
+                              {visibleRecentTexts.length}
+                            </span>
+                          </div>
+                          <div className="divide-y divide-neutral-100">
+                            {visibleRecentTexts.map((text) => {
+                              const isDeleteVisible = recentTextToDelete === text;
+
+                              return (
+                                <div
+                                  key={text}
+                                  className="flex min-h-[48px] items-stretch"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRecentTextSelect(text)}
+                                    onPointerDown={() => startRecentTextLongPress(text)}
+                                    onPointerUp={clearRecentTextLongPress}
+                                    onPointerCancel={clearRecentTextLongPress}
+                                    onPointerLeave={clearRecentTextLongPress}
+                                    onContextMenu={(event) => {
+                                      event.preventDefault();
+                                      setRecentTextToDelete(text);
+                                    }}
+                                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-neutral-50 active:bg-neutral-100"
+                                  >
+                                    <Clock size={17} className="flex-shrink-0 text-neutral-400" />
+                                    <span className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-ink">
+                                      {text}
+                                    </span>
+                                  </button>
+                                  {isDeleteVisible && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleRecentTextDelete(text);
+                                      }}
+                                      className="m-2 ml-0 flex flex-shrink-0 items-center gap-1 rounded-sm border border-red-200 bg-red-50 px-2 text-[11px] font-black uppercase tracking-wide text-red-600"
+                                    >
+                                      <Trash2 size={13} />
+                                      {t.ui.delete}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                   <div className="flex gap-2">
                     <button
