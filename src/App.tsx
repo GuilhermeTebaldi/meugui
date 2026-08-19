@@ -249,6 +249,7 @@ export default function App() {
   const inputAreaRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
+  const suppressRecentTextsOpenRef = useRef(false);
   const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const speechInputBaseRef = useRef('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -575,6 +576,7 @@ export default function App() {
     setInputText(text);
     setRecentTextToDelete(null);
     setIsRecentTextsOpen(false);
+    suppressRecentTextsOpenRef.current = true;
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
@@ -1181,6 +1183,11 @@ export default function App() {
                       className="w-full h-[50px] md:h-[60px] pl-4 md:pl-6 pr-24 text-lg md:text-xl bg-white border-2 border-ink rounded-sm outline-none placeholder:text-neutral-400"
                       value={inputText}
                       onFocus={() => {
+                        if (suppressRecentTextsOpenRef.current) {
+                          suppressRecentTextsOpenRef.current = false;
+                          return;
+                        }
+
                         if (recentTexts.length > 0) {
                           setIsRecentTextsOpen(true);
                         }
