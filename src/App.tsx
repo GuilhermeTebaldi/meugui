@@ -1463,7 +1463,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="app-scroll flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden no-scrollbar">
+      <main className={`app-scroll relative flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden no-scrollbar ${isSettingsOpen ? 'z-50' : ''}`}>
         <div className={`max-w-6xl mx-auto min-h-full pb-24 lg:pb-0 ${activeTab === 'notes' ? '' : 'grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-0.5 bg-border'}`}>
           {/* Main Content */}
         <section className={`bg-white p-6 md:p-10 space-y-8 ${activeTab === 'calendar' ? 'hidden lg:block' : 'block'}`}>
