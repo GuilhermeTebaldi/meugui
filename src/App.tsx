@@ -57,6 +57,7 @@ import { ptBR, it } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
 import { AgendaItem, Category, RecurrenceType } from './types';
 import { storage } from './lib/storage';
+import DayWeather from './components/DayWeather';
 
 type Language = 'pt' | 'it';
 
@@ -140,6 +141,7 @@ const getInitialLanguage = (): Language => {
 
 const TRANSLATIONS = {
   pt: {
+    weather: { title: 'Tempo do dia', sereno: 'Ensolarado', nuvoloso: 'Nublado', pioggia: 'Chuva', error: 'Tempo indisponível para esta data. Tente novamente.', loading: 'Consultando o tempo…', location: 'Permita a localização ou escolha uma cidade.', retry: 'Usar minha localização / tentar novamente', city: 'Cidade', search: 'Buscar', reference: 'Local de referência: sem localização registrada neste dia', forecast: 'Previsão do dia · mínima / máxima', history: 'Histórico do dia · mínima / máxima', snow: 'Neve indicada pela fonte meteorológica', empty: 'Nenhuma cidade encontrada.' },
     scheduling: { time: 'Horário', confirm: 'Confirmar agendamento', cancel: 'Cancelar' },
     recurrence: { none: 'Não repetir', daily: 'Diário', weekly: 'Semanal', monthly: 'Mensal', workdays: 'Seg-Sex', monSat: 'Seg-Sáb' },
     alerts: { load: 'Nao foi possivel carregar os dados salvos neste dispositivo.', save: 'Falha ao salvar. Faça um backup agora para evitar perdas.', notes: 'Nao foi possivel salvar o bloco de notas neste dispositivo.', invalidBackup: 'Backup invalido. Selecione um arquivo JSON gerado pelo sistema.', invalidImage: 'Nao foi possivel abrir essa foto no navegador. No iPhone, ajuste a camera para Mais Compativel/JPEG ou escolha uma foto JPG/PNG.' },
@@ -154,6 +156,7 @@ const TRANSLATIONS = {
     dateRangeSeparator: 'a',
   },
   it: {
+    weather: { title: 'Meteo del giorno', sereno: 'Sereno', nuvoloso: 'Nuvoloso', pioggia: 'Pioggia', error: 'Meteo non disponibile per questa data. Riprova.', loading: 'Caricamento meteo…', location: 'Consenti la posizione o scegli una città.', retry: 'Usa la mia posizione / riprova', city: 'Città', search: 'Cerca', reference: 'Località di riferimento: posizione non registrata in questo giorno', forecast: 'Previsione del giorno · minima / massima', history: 'Storico del giorno · minima / massima', snow: 'Neve indicata dalla fonte meteorologica', empty: 'Nessuna città trovata.' },
     scheduling: { time: 'Orario', confirm: 'Conferma programmazione', cancel: 'Annulla' },
     recurrence: { none: 'Non ripetere', daily: 'Giornaliero', weekly: 'Settimanale', monthly: 'Mensile', workdays: 'Lun-Ven', monSat: 'Lun-Sab' },
     alerts: { load: 'Non è stato possibile caricare i dati salvati su questo dispositivo.', save: 'Salvataggio non riuscito. Crea subito un backup per evitare perdite.', notes: 'Non è stato possibile salvare il blocco note su questo dispositivo.', invalidBackup: 'Backup non valido. Seleziona un file JSON generato dal sistema.', invalidImage: 'Non è stato possibile aprire questa foto nel browser. Su iPhone, imposta la fotocamera su Massima compatibilità/JPEG oppure scegli una foto JPG/PNG.' },
@@ -1600,6 +1603,10 @@ export default function App() {
               />
             </div>
           </div>
+
+          {activeTab !== 'notes' && (
+            <DayWeather key={selectedDateKey} dayKey={selectedDateKey} labels={t.weather} language={language} />
+          )}
 
           <div className="mb-6 space-y-3">
             <div className="relative">
