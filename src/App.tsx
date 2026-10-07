@@ -49,9 +49,6 @@ import {
   addMonths,
   subMonths,
   eachDayOfInterval,
-  getDay,
-  getDate,
-  isAfter,
   startOfDay
 } from 'date-fns';
 import { ptBR, it } from 'date-fns/locale';
@@ -59,6 +56,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AgendaItem, Category, RecurrenceType } from './types';
 import { storage } from './lib/storage';
 import DayWeather from './components/DayWeather';
+import { checkItemVisibility, getItemsForDay } from './lib/agendaDay';
 
 type Language = 'pt' | 'it';
 
@@ -135,13 +133,25 @@ const saveRecentTexts = (texts: string[]) => {
   localStorage.setItem(RECENT_TEXTS_STORAGE_KEY, JSON.stringify(normalizeRecentTexts(texts)));
 };
 
-const getInitialLanguage = (): Language => {
+export const getInitialLanguage = (): Language => {
   if (typeof window === 'undefined') return 'pt';
   return localStorage.getItem(LANGUAGE_STORAGE_KEY) === 'it' ? 'it' : 'pt';
 };
 
-const TRANSLATIONS = {
+export const TRANSLATIONS = {
   pt: {
+    pdf: {
+      download: 'Baixar relatório do dia', title: 'Calibração PDF', test: 'Gerar PDF de teste',
+      save: 'Salvar configuração', reset: 'Restaurar padrão', copy: 'Copiar configuração',
+      empty: 'Nenhuma anotação neste dia', loading: 'Carregando PDF...', generating: 'Gerando PDF...',
+      saved: 'Configuração salva', copied: 'Configuração copiada', resetDone: 'Padrão restaurado',
+      error: 'Não foi possível gerar ou carregar o PDF.', storageError: 'Não foi possível salvar a calibração.',
+      unsupported: 'A fonte do PDF não suporta estes caracteres:', invalid: 'Revise os valores: a área e os textos devem caber na página e nas linhas.',
+      back: 'Voltar à agenda', description: 'Descrição', date: 'Data', width: 'Largura', firstY: 'Y da primeira linha',
+      spacing: 'Espaçamento entre linhas', font: 'Fonte', minFont: 'Fonte mínima', baseline: 'Baseline',
+      zoom: 'Zoom visual', hint: 'Arraste os textos ou ajuste os campos em pontos PDF. O zoom não altera as coordenadas.',
+      json: 'Configuração JSON',
+    },
     weather: { title: 'Tempo do dia', sereno: 'Ensolarado', nuvoloso: 'Nublado', pioggia: 'Chuva', error: 'Tempo indisponível para esta data. Tente novamente.', loading: 'Consultando o tempo…', location: 'Permita a localização para consultar o tempo.', retry: 'Usar minha localização / tentar novamente', city: 'Cidade', search: 'Buscar', reference: 'Local de referência: sem localização registrada neste dia', forecast: 'Previsão do dia · mínima / máxima', history: 'Histórico do dia · mínima / máxima', snow: 'Neve indicada pela fonte meteorológica', empty: 'Nenhuma cidade encontrada.' },
     scheduling: { time: 'Horário', confirm: 'Confirmar agendamento', cancel: 'Cancelar' },
     recurrence: { none: 'Não repetir', daily: 'Diário', weekly: 'Semanal', monthly: 'Mensal', workdays: 'Seg-Sex', monSat: 'Seg-Sáb' },
@@ -157,6 +167,18 @@ const TRANSLATIONS = {
     dateRangeSeparator: 'a',
   },
   it: {
+    pdf: {
+      download: 'Scarica report giornaliero', title: 'Calibrazione PDF', test: 'Genera PDF di prova',
+      save: 'Salva configurazione', reset: 'Ripristina predefiniti', copy: 'Copia configurazione',
+      empty: 'Nessuna voce in questo giorno', loading: 'Caricamento PDF...', generating: 'Generazione PDF...',
+      saved: 'Configurazione salvata', copied: 'Configurazione copiata', resetDone: 'Predefiniti ripristinati',
+      error: 'Non è stato possibile generare o caricare il PDF.', storageError: 'Non è stato possibile salvare la calibrazione.',
+      unsupported: 'Il font PDF non supporta questi caratteri:', invalid: 'Controlla i valori: area e testi devono rientrare nella pagina e nelle righe.',
+      back: 'Torna all’agenda', description: 'Descrizione', date: 'Data', width: 'Larghezza', firstY: 'Y della prima riga',
+      spacing: 'Spaziatura tra righe', font: 'Font', minFont: 'Font minimo', baseline: 'Baseline',
+      zoom: 'Zoom visivo', hint: 'Trascina i testi o regola i campi in punti PDF. Lo zoom non modifica le coordinate.',
+      json: 'Configurazione JSON',
+    },
     weather: { title: 'Meteo del giorno', sereno: 'Sereno', nuvoloso: 'Nuvoloso', pioggia: 'Pioggia', error: 'Meteo non disponibile per questa data. Riprova.', loading: 'Caricamento meteo…', location: 'Consenti la posizione per consultare il meteo.', retry: 'Usa la mia posizione / riprova', city: 'Città', search: 'Cerca', reference: 'Località di riferimento: posizione non registrata in questo giorno', forecast: 'Previsione del giorno · minima / massima', history: 'Storico del giorno · minima / massima', snow: 'Neve indicata dalla fonte meteorologica', empty: 'Nessuna città trovata.' },
     scheduling: { time: 'Orario', confirm: 'Conferma programmazione', cancel: 'Annulla' },
     recurrence: { none: 'Non ripetere', daily: 'Giornaliero', weekly: 'Settimanale', monthly: 'Mensile', workdays: 'Lun-Ven', monSat: 'Lun-Sab' },
@@ -234,6 +256,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
   const [isListeningToSpeech, setIsListeningToSpeech] = useState(false);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
   // Edit/Delete Modals Mode
   const [editingItem, setEditingItem] = useState<AgendaItem | null>(null);
@@ -831,54 +854,25 @@ export default function App() {
     setEditingItem(null);
   };
 
-  const checkItemVisibility = (item: AgendaItem, targetDate: Date) => {
-    if (!item.scheduledDate) return false;
-    
-    const dateKey = format(targetDate, 'yyyy-MM-dd');
-    if (item.exceptionDates?.includes(dateKey)) return false;
+  const dailyItems = useMemo(() => getItemsForDay(items, selectedDate), [items, selectedDate]);
+  const filteredItems = useMemo(
+    () => dailyItems.filter(item => filterCategory === 'Tudo' || item.category === filterCategory),
+    [dailyItems, filterCategory]
+  );
+  const reportTexts = useMemo(() => dailyItems.map(item => item.text).filter(text => text.trim()), [dailyItems]);
 
-    const itemDate = parseISO(item.scheduledDate);
-    
-    // If it's none, just check if it's the exact same day
-    if (item.recurrence === 'none') {
-      return isSameDay(itemDate, targetDate);
-    }
-
-    // Only show if the target date is on or after the scheduled date
-    if (isAfter(startOfDay(itemDate), startOfDay(targetDate)) && !isSameDay(itemDate, targetDate)) {
-      return false;
-    }
-
-    if (item.recurrence === 'daily') return true;
-    
-    if (item.recurrence === 'weekly') {
-      return getDay(itemDate) === getDay(targetDate);
-    }
-    
-    if (item.recurrence === 'monthly') {
-      return getDate(itemDate) === getDate(targetDate);
-    }
-
-    if (item.recurrence === 'workdays') {
-      const day = getDay(targetDate);
-      return day >= 1 && day <= 5;
-    }
-
-    if (item.recurrence === 'mon-sat') {
-      const day = getDay(targetDate);
-      return day >= 1 && day <= 6;
-    }
-
-    return false;
+  const handleDownloadReport = async () => {
+    if (isGeneratingReport || !reportTexts.length) return;
+    setIsGeneratingReport(true);
+    try {
+      const { downloadDailyReport } = await import('./lib/reportPdf');
+      await downloadDailyReport(reportTexts, selectedDate);
+    } catch (error) {
+      const failure = error as { code?: string; detail?: string };
+      alert(failure.code === 'unsupported' ? `${t.pdf.unsupported} ${failure.detail}`
+        : failure.code === 'invalid' ? t.pdf.invalid : t.pdf.error);
+    } finally { setIsGeneratingReport(false); }
   };
-
-  const filteredItems = useMemo(() => {
-    return items.filter(item => {
-      const matchesDate = checkItemVisibility(item, selectedDate);
-      const matchesCategory = filterCategory === 'Tudo' || item.category === filterCategory;
-      return matchesDate && matchesCategory;
-    }).sort((a, b) => a.timestamp - b.timestamp);
-  }, [items, selectedDate, filterCategory]);
 
   const selectedDateKey = useMemo(
     () => format(selectedDate, 'yyyy-MM-dd'),
@@ -1946,6 +1940,15 @@ export default function App() {
                   })}
                 </AnimatePresence>
               )}
+            </div>
+          )}
+          {activeTab === 'list' && (
+            <div className="pt-4">
+              <button type="button" onClick={handleDownloadReport} disabled={isGeneratingReport || !reportTexts.length}
+                className="w-full p-4 border-2 border-ink bg-white text-ink text-[11px] font-black uppercase tracking-widest hover:bg-ink hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded-sm flex items-center justify-center gap-2">
+                <Download size={18} />{isGeneratingReport ? t.pdf.generating : t.pdf.download}
+              </button>
+              {!reportTexts.length && <p className="text-sm text-neutral-400 mt-2">{t.pdf.empty}</p>}
             </div>
           )}
         </section>
