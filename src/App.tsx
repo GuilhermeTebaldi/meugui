@@ -218,7 +218,6 @@ export default function App() {
   const [categories, setCategories] = useState<string[]>([]);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isAddingCategory, setIsAddingCategory] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<Category>('');
   const [filterCategory, setFilterCategory] = useState<Category | 'Tudo'>('Tudo');
   const [selectedRecurrence, setSelectedRecurrence] = useState<RecurrenceType>('none');
   const [selectedDate, setSelectedDate] = useState<Date>(startOfToday());
@@ -291,9 +290,6 @@ export default function App() {
         const nextRecentTexts = normalizeRecentTexts([...storedRecentTexts, ...itemTexts]);
         setRecentTexts(nextRecentTexts);
         saveRecentTexts(nextRecentTexts);
-        if (savedCats.length > 0) {
-          setSelectedCategory(savedCats[0]);
-        }
       } catch {
         if (!isMounted) return;
         alert(t.alerts.load);
@@ -380,9 +376,6 @@ export default function App() {
     const updated = [...categories, newCategoryName.trim()];
     setCategories(updated);
     storage.saveCategories(updated);
-    if (categories.length === 0) {
-      setSelectedCategory(newCategoryName.trim());
-    }
     setNewCategoryName('');
     setIsAddingCategory(false);
   };
@@ -477,7 +470,6 @@ export default function App() {
 
       setItems(importedItems);
       setCategories(importedCategories);
-      setSelectedCategory(importedCategories[0] || '');
       setFilterCategory('Tudo');
       setNotes(importedNotes.content);
       setNotesUpdatedAt(importedNotes.updatedAt);
@@ -563,7 +555,6 @@ export default function App() {
     setCategories(updated);
     storage.saveCategories(updated);
     if (filterCategory === cat) setFilterCategory('Tudo');
-    if (selectedCategory === cat) setSelectedCategory(updated[0] || '');
   };
 
   const rememberRecentText = (text: string) => {
@@ -718,7 +709,7 @@ export default function App() {
       id: crypto.randomUUID(),
       text: inputText,
       timestamp: finalTimestamp,
-      category: selectedCategory,
+      category: filterCategory === 'Tudo' ? '' : filterCategory,
       completedDates: [],
       completedAtByDate: {},
       scheduledDate: format(isSpecificDay ? selectedDate : new Date(), 'yyyy-MM-dd'),
@@ -1116,7 +1107,6 @@ export default function App() {
   );
 
   const handleCategoryFilterSelect = (category: string) => {
-    setSelectedCategory(category);
     setFilterCategory((prev) => (prev === category ? 'Tudo' : category));
   };
 
@@ -1875,7 +1865,7 @@ export default function App() {
                             {format(item.timestamp, 'HH:mm')}
                           </span>
                           <div className="md:hidden text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
-                            {item.category}
+                            {item.category || t.ui.uncategorized}
                           </div>
                         </div>
                         
@@ -1914,7 +1904,7 @@ export default function App() {
 
                         <div className="text-right w-full md:w-auto space-y-1 mt-2 md:mt-0 flex md:flex-col items-center md:items-end justify-between md:justify-end">
                           <div className="hidden md:block text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
-                            {item.category}
+                            {item.category || t.ui.uncategorized}
                           </div>
                           {item.recurrence !== 'none' && (
                             <div className="text-[9px] font-bold text-highlight uppercase tracking-[0.2em] flex items-center justify-end gap-1">
@@ -2130,6 +2120,7 @@ export default function App() {
                       onChange={(e) => setEditCategory(e.target.value)}
                       className="w-full border-2 border-ink p-2 font-bold outline-none rounded-sm"
                     >
+                      <option value="">{t.ui.uncategorized}</option>
                       {categories.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
