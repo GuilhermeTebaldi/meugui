@@ -1355,11 +1355,11 @@ export default function App() {
                       {format(selectedDate, 'eeee, dd/MM/yyyy', { locale: dateLocale })}
                     </p>
                     <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-                      <label className="flex flex-col gap-1 sm:flex-1 text-sm font-bold">
+                      <label className="flex w-full min-w-0 flex-col gap-1 sm:flex-1 text-sm font-bold">
                         {t.scheduling.time}
                         <input type="time" required value={selectedTime}
                           onChange={(event) => setSelectedTime(event.target.value)}
-                          className="w-full min-h-[48px] border-2 border-border bg-white p-3 text-base rounded-sm outline-none focus:border-ink" />
+                          className="block w-full min-w-0 max-w-full box-border appearance-none min-h-[48px] border-2 border-border bg-white p-3 text-base rounded-sm outline-none focus:border-ink" />
                       </label>
                       <div className="flex gap-2">
                         <button type="button" onClick={() => setIsScheduling(false)}
