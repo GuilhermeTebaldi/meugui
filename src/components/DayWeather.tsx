@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Sun, Cloud, CloudRain, MapPin, RefreshCw } from 'lucide-react';
+import { Sun, Cloud, CloudRain, RefreshCw } from 'lucide-react';
 import { loadWeather, localDay, locate, searchCities, weatherKind, type Weather, type Location } from '../lib/weather';
 
 type Labels = Record<'title'|'sereno'|'nuvoloso'|'pioggia'|'error'|'loading'|'location'|'retry'|'city'|'search'|'reference'|'forecast'|'history'|'snow'|'empty', string>;
@@ -24,29 +24,27 @@ export default function DayWeather({ dayKey, labels, language }: { dayKey: strin
   const kind = data ? weatherKind(data.code) : undefined;
   const Icon = kind === 'sereno' ? Sun : kind === 'pioggia' ? CloudRain : Cloud;
   return (
-    <div className="rounded-sm border-2 border-border bg-neutral-50 p-4 space-y-3" aria-label={labels.title}>
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] font-black uppercase tracking-widest text-neutral-500">{labels.title}</span>
-        <button type="button" onClick={() => setEditing(!editing)} className="min-h-11 text-xs font-bold text-blue-600 flex items-center gap-1"><MapPin size={14} />{labels.city}</button>
-      </div>
+    <div className="rounded-sm border border-border bg-neutral-50 px-3 py-1" aria-label={labels.title}>
       <div aria-live="polite">
         {busy ? <p className="text-sm text-neutral-500">{labels.loading}</p> : error ? (
           <div className="space-y-2"><p className="text-sm text-neutral-500">{error}</p>
             <button type="button" className="min-h-11 text-sm font-bold flex items-center gap-2" onClick={() => { void locate(true).catch(() => {}); setRevision(v => v + 1); }}><RefreshCw size={16} />{labels.retry}</button>
           </div>
         ) : data && kind && (
-          <div className="flex items-center gap-4">
-            <div className={`rounded-full p-3 shrink-0 ${kind === 'sereno' ? 'bg-amber-100 text-amber-500' : kind === 'pioggia' ? 'bg-blue-100 text-blue-500' : 'bg-slate-200 text-slate-500'}`}><Icon size={32} strokeWidth={1.8} aria-hidden="true" /></div>
-            <div className="min-w-0"><p className="font-bold text-lg">{labels[kind]} <span className="ml-2 text-sm font-medium text-neutral-500">{Math.round(data.min)}° / {Math.round(data.max)}°C</span></p>
-              <p className="text-xs text-neutral-500">{dayKey >= localDay() ? labels.forecast : labels.history}</p>
-              {[71,73,75,77,85,86].includes(data.code) && <p className="text-xs text-neutral-500">{labels.snow}</p>}
-            </div>
-          </div>
+          <button type="button" onClick={() => setEditing(!editing)} aria-label={`${labels[kind]} · ${labels.city}`} aria-expanded={editing} className="flex w-full min-h-11 items-center gap-2.5 text-left">
+            <Icon size={23} strokeWidth={1.8} aria-hidden="true" className={`shrink-0 ${kind === 'sereno' ? 'text-amber-500' : kind === 'pioggia' ? 'text-blue-500' : 'text-slate-500'}`} />
+            <span className="font-bold text-sm">{labels[kind]}</span>
+            <span className="ml-auto text-sm font-medium text-neutral-500 whitespace-nowrap">{Math.round(data.min)}° / {Math.round(data.max)}°C</span>
+          </button>
         )}
       </div>
-      {!busy && !error && data && <p className="text-xs text-neutral-500 break-words">{data.inferred && `${labels.reference} · `}{data.location.name || `${data.location.latitude.toFixed(3)}, ${data.location.longitude.toFixed(3)}`}</p>}
+      {editing && !busy && !error && data && <div className="pb-2 space-y-1 text-xs text-neutral-500">
+        <p>{dayKey >= localDay() ? labels.forecast : labels.history}</p>
+        <p className="break-words">{data.inferred && `${labels.reference} · `}{data.location.name || `${data.location.latitude.toFixed(3)}, ${data.location.longitude.toFixed(3)}`}</p>
+        {[71,73,75,77,85,86].includes(data.code) && <p>{labels.snow}</p>}
+      </div>}
       {(editing || (!busy && error === labels.location)) && (
-        <form className="space-y-2" onSubmit={async e => {
+        <form className="space-y-2 py-2" onSubmit={async e => {
           e.preventDefault(); setEditing(true); setSearchBusy(true); setCities([]);
           try { const results = await searchCities(city, language); setCities(results); setError(results.length ? '' : labels.empty); }
           catch { setError(labels.error); } finally { setSearchBusy(false); }
@@ -56,7 +54,6 @@ export default function DayWeather({ dayKey, labels, language }: { dayKey: strin
           {cities.map((v, i) => <button type="button" key={i} className="block w-full min-h-11 text-left px-3 py-2 border border-border rounded-sm bg-white text-sm" onClick={() => { setChosen(v); setEditing(false); setCities([]); }}>{v.name}</button>)}
         </form>
       )}
-      <a href="https://open-meteo.com/" target="_blank" rel="noreferrer" className="block text-[10px] text-neutral-400 underline">Open-Meteo · GeoNames</a>
     </div>
   );
 }

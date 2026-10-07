@@ -1591,6 +1591,9 @@ export default function App() {
                       <Upload size={12} />
                       {t.ui.restore}
                     </button>
+                    <div className="px-3 py-2 border-t border-border mt-1 text-[10px] text-neutral-400">
+                      {t.weather.title}: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer" className="underline">Open-Meteo</a> · <a href="https://www.geonames.org/" target="_blank" rel="noreferrer" className="underline">GeoNames</a>
+                    </div>
                   </div>
                 )}
               </div>
