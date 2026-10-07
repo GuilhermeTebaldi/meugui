@@ -40,10 +40,6 @@ async function json(url: string) {
   if (!r.ok) throw new Error('weather');
   return r.json();
 }
-export async function searchCities(name: string, language: string): Promise<Location[]> {
-  const data = await json(`https://geocoding-api.open-meteo.com/v1/search?${new URLSearchParams({ name, language, count: '5' })}`);
-  return (data.results || []).filter(validLocation).map((v: Location & { country?: string; admin1?: string }) => ({ latitude: v.latitude, longitude: v.longitude, name: [v.name,v.admin1,v.country].filter(Boolean).join(', ') }));
-}
 export function weatherKind(code: number): 'sereno' | 'nuvoloso' | 'pioggia' {
   if (code === 0 || code === 1) return 'sereno';
   if ([51,53,55,56,57,61,63,65,66,67,80,81,82,95,96,99].includes(code)) return 'pioggia';
