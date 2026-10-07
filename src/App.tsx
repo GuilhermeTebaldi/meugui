@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Plus, 
   Calendar as CalendarIcon, 
@@ -260,6 +261,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
@@ -308,7 +310,7 @@ export default function App() {
 
     const closeOnOutsideClick = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node;
-      if (settingsRef.current && !settingsRef.current.contains(target)) {
+      if (settingsRef.current && !settingsRef.current.contains(target) && !settingsMenuRef.current?.contains(target)) {
         setIsSettingsOpen(false);
       }
     };
@@ -1463,7 +1465,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className={`app-scroll relative flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden no-scrollbar ${isSettingsOpen ? 'z-50' : ''}`}>
+      <main className="app-scroll flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden no-scrollbar">
         <div className={`max-w-6xl mx-auto min-h-full pb-24 lg:pb-0 ${activeTab === 'notes' ? '' : 'grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-0.5 bg-border'}`}>
           {/* Main Content */}
         <section className={`bg-white p-6 md:p-10 space-y-8 ${activeTab === 'calendar' ? 'hidden lg:block' : 'block'}`}>
@@ -1531,8 +1533,8 @@ export default function App() {
                   <Settings size={13} />
                 </button>
 
-                {isSettingsOpen && (
-                  <div className="fixed left-4 right-4 top-24 md:absolute md:left-auto md:right-0 md:top-auto md:mt-2 md:w-56 bg-white border border-border rounded-sm shadow-lg z-50 p-1 max-h-[calc(100vh-7rem)] overflow-y-auto">
+                {isSettingsOpen && createPortal(
+                  <div ref={settingsMenuRef} className="fixed left-4 right-4 top-24 md:left-auto md:right-8 md:w-56 bg-white border border-border rounded-sm shadow-lg z-[80] p-1 max-h-[calc(100dvh-7rem)] overflow-y-auto overscroll-contain">
                     <div className="px-3 py-2 border-b border-border mb-1">
                       <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2">
                         <Languages size={12} />
@@ -1584,7 +1586,7 @@ export default function App() {
                     <div className="px-3 py-2 border-t border-border mt-1 text-[10px] text-neutral-400">
                       {t.weather.title}: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer" className="underline">Open-Meteo</a> · <a href="https://www.geonames.org/" target="_blank" rel="noreferrer" className="underline">GeoNames</a>
                     </div>
-                  </div>
+                  </div>, document.body
                 )}
               </div>
               <input
