@@ -11,12 +11,33 @@
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   body {
     @apply bg-bg text-ink font-sans;
+    position: fixed;
+    inset: 0;
   }
 }
 
 @layer utilities {
+  .app-shell {
+    height: 100%;
+    height: 100dvh;
+  }
+
+  .app-scroll {
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
