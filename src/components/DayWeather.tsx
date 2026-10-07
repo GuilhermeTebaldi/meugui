@@ -13,6 +13,12 @@ export default function DayWeather({ dayKey, labels, language }: { dayKey: strin
   const [city, setCity] = useState('');
   const [cities, setCities] = useState<Location[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
+  const refreshLocation = async () => {
+    setBusy(true);
+    try { setChosen(await locate(true)); }
+    catch { setError(labels.location); }
+    finally { setBusy(false); }
+  };
   useEffect(() => {
     let active = true;
     setBusy(true); setError('');
@@ -28,7 +34,10 @@ export default function DayWeather({ dayKey, labels, language }: { dayKey: strin
       <div aria-live="polite">
         {busy ? <p className="text-sm text-neutral-500">{labels.loading}</p> : error ? (
           <div className="space-y-2"><p className="text-sm text-neutral-500">{error}</p>
-            <button type="button" className="min-h-11 text-sm font-bold flex items-center gap-2" onClick={() => { void locate(true).catch(() => {}); setRevision(v => v + 1); }}><RefreshCw size={16} />{labels.retry}</button>
+            <button type="button" className="min-h-11 text-sm font-bold flex items-center gap-2" onClick={() => {
+              if (error === labels.location) void refreshLocation();
+              else setRevision(v => v + 1);
+            }}><RefreshCw size={16} />{labels.retry}</button>
           </div>
         ) : data && kind && (
           <button type="button" onClick={() => setEditing(!editing)} aria-label={`${labels[kind]} · ${labels.city}`} aria-expanded={editing} className="flex w-full min-h-11 items-center gap-2.5 text-left">
@@ -49,6 +58,7 @@ export default function DayWeather({ dayKey, labels, language }: { dayKey: strin
           try { const results = await searchCities(city, language); setCities(results); setError(results.length ? '' : labels.empty); }
           catch { setError(labels.error); } finally { setSearchBusy(false); }
         }}>
+          <button type="button" disabled={busy} onClick={() => void refreshLocation()} className="min-h-11 text-xs font-bold text-blue-600 flex items-center gap-2 disabled:opacity-50"><RefreshCw size={14} />{labels.retry}</button>
           <div className="flex gap-2"><input aria-label={labels.city} placeholder={labels.city} value={city} onChange={e => setCity(e.target.value)} className="min-w-0 flex-1 min-h-11 border-2 border-border rounded-sm px-3 bg-white text-sm" />
             <button disabled={searchBusy || city.trim().length < 2} className="min-h-11 px-3 bg-ink text-white rounded-sm text-xs font-bold disabled:opacity-50">{labels.search}</button></div>
           {cities.map((v, i) => <button type="button" key={i} className="block w-full min-h-11 text-left px-3 py-2 border border-border rounded-sm bg-white text-sm" onClick={() => { setChosen(v); setEditing(false); setCities([]); }}>{v.name}</button>)}

@@ -1,13 +1,13 @@
 export type Location = { latitude: number; longitude: number; name?: string };
 export type Weather = { location: Location; inferred: boolean; code: number; min: number; max: number; fetchedAt: number; day: string };
 const KEY = 'agenda_weather_auto_v1';
-type Store = { last?: Location; days: Record<string, Weather> };
+type Store = { last?: Location; locationAsked?: boolean; days: Record<string, Weather> };
 let memory: Store = { days: {} };
 const validLocation = (v: Location | undefined): v is Location => !!v && Number.isFinite(v.latitude) && Math.abs(v.latitude) <= 90 && Number.isFinite(v.longitude) && Math.abs(v.longitude) <= 180;
 function read(): Store {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) || '{}');
-    return { last: validLocation(v.last) ? v.last : undefined, days: Object.fromEntries(Object.entries(v.days || {}).filter((entry): entry is [string, Weather] => {
+    return { last: validLocation(v.last) ? v.last : undefined, locationAsked: v.locationAsked === true, days: Object.fromEntries(Object.entries(v.days || {}).filter((entry): entry is [string, Weather] => {
       const [day, value] = entry;
       const d = value as Weather;
       return /^\d{4}-\d{2}-\d{2}$/.test(day) && d && d.day === day && validLocation(d.location) && [d.code,d.min,d.max,d.fetchedAt].every(Number.isFinite) && typeof d.inferred === 'boolean';
@@ -22,9 +22,13 @@ export function localDay() {
 let gps: Promise<Location> | undefined;
 let gpsDay = '';
 export function locate(retry = false): Promise<Location> {
+  const stored = read();
+  if (!retry && stored.last) return Promise.resolve(stored.last);
+  if (!retry && stored.locationAsked && (!gps || gpsDay !== localDay())) return Promise.reject(new Error('location'));
   if (retry || gpsDay !== localDay()) { gps = undefined; gpsDay = localDay(); }
   return gps ||= new Promise((resolve, reject) => {
     if (!navigator.geolocation) return reject(new Error('location'));
+    save({ ...read(), locationAsked: true });
     navigator.geolocation.getCurrentPosition(p => {
       const location = { latitude: p.coords.latitude, longitude: p.coords.longitude };
       save({ ...read(), last: location }); resolve(location);
@@ -50,6 +54,7 @@ export async function loadWeather(day: string, chosen?: Location): Promise<Weath
   let current: Location | undefined;
   let located = false;
   if (chosen) { current = chosen; save({ ...store, last: chosen }); }
+  else if (store.last || existing?.location) { current = store.last || existing?.location; }
   else { try { current = await locate(); located = true; } catch { current = read().last; } }
   const location = chosen || existing?.location || current;
   if (!location) throw new Error('location');
