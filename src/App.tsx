@@ -140,6 +140,7 @@ const getInitialLanguage = (): Language => {
 
 const TRANSLATIONS = {
   pt: {
+    scheduling: { time: 'Horário', confirm: 'Confirmar agendamento', cancel: 'Cancelar' },
     recurrence: { none: 'Não repetir', daily: 'Diário', weekly: 'Semanal', monthly: 'Mensal', workdays: 'Seg-Sex', monSat: 'Seg-Sáb' },
     alerts: { load: 'Nao foi possivel carregar os dados salvos neste dispositivo.', save: 'Falha ao salvar. Faça um backup agora para evitar perdas.', notes: 'Nao foi possivel salvar o bloco de notas neste dispositivo.', invalidBackup: 'Backup invalido. Selecione um arquivo JSON gerado pelo sistema.', invalidImage: 'Nao foi possivel abrir essa foto no navegador. No iPhone, ajuste a camera para Mais Compativel/JPEG ou escolha uma foto JPG/PNG.' },
     placeholders: { task: 'Ex: Preciso ir ao médico às 14h', newCategory: 'Nova...', search: 'Pesquisar marcações do dia...', notes: 'Escreva suas notas aqui...' },
@@ -153,6 +154,7 @@ const TRANSLATIONS = {
     dateRangeSeparator: 'a',
   },
   it: {
+    scheduling: { time: 'Orario', confirm: 'Conferma programmazione', cancel: 'Annulla' },
     recurrence: { none: 'Non ripetere', daily: 'Giornaliero', weekly: 'Settimanale', monthly: 'Mensile', workdays: 'Lun-Ven', monSat: 'Lun-Sab' },
     alerts: { load: 'Non è stato possibile caricare i dati salvati su questo dispositivo.', save: 'Salvataggio non riuscito. Crea subito un backup per evitare perdite.', notes: 'Non è stato possibile salvare il blocco note su questo dispositivo.', invalidBackup: 'Backup non valido. Seleziona un file JSON generato dal sistema.', invalidImage: 'Non è stato possibile aprire questa foto nel browser. Su iPhone, imposta la fotocamera su Massima compatibilità/JPEG oppure scegli una foto JPG/PNG.' },
     placeholders: { task: 'Es: Devo andare dal medico alle 14:00', newCategory: 'Nuova...', search: 'Cerca le voci del giorno...', notes: 'Scrivi qui le tue note...' },
@@ -218,6 +220,7 @@ export default function App() {
   const [selectedRecurrence, setSelectedRecurrence] = useState<RecurrenceType>('none');
   const [selectedDate, setSelectedDate] = useState<Date>(startOfToday());
   const [selectedTime, setSelectedTime] = useState(format(new Date(), 'HH:mm'));
+  const [isScheduling, setIsScheduling] = useState(false);
   const [activeTab, setActiveTab ] = useState<'list' | 'visual' | 'calendar' | 'notes'>('list');
   const [visualScope, setVisualScope] = useState<'day' | 'week' | 'all'>('day');
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -684,6 +687,16 @@ export default function App() {
     }
   };
 
+  const openScheduling = () => {
+    setSelectedTime(format(new Date(), 'HH:mm'));
+    setIsRecentTextsOpen(false);
+    setIsScheduling(true);
+  };
+
+  useEffect(() => {
+    setIsScheduling(false);
+  }, [selectedDate]);
+
   const handleAddItem = (isSpecificDay: boolean = false) => {
     if (!inputText.trim()) return;
     if (!isSpecificDay && !isToday(selectedDate)) return;
@@ -691,6 +704,7 @@ export default function App() {
     let finalTimestamp = Date.now();
     
     if (isSpecificDay) {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(selectedTime)) return;
       const [hours, minutes] = selectedTime.split(':').map(Number);
       const scheduledDateWithTime = new Date(selectedDate);
       scheduledDateWithTime.setHours(hours, minutes, 0, 0);
@@ -717,6 +731,7 @@ export default function App() {
     setIsRecentTextsOpen(false);
     setRecentTextToDelete(null);
     setPendingImage(null);
+    setIsScheduling(false);
     // Reinicia o tempo para o momento atual para o próximo item
     setSelectedTime(format(new Date(), 'HH:mm'));
   };
@@ -1199,7 +1214,12 @@ export default function App() {
                         }
                         setRecentTextToDelete(null);
                       }}
-                      onKeyDown={(e) => e.key === 'Enter' && handleAddItem(false)}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return;
+                        if (isScheduling) handleAddItem(true);
+                        else if (isToday(selectedDate)) handleAddItem(false);
+                        else openScheduling();
+                      }}
                     />
                     <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                       {pendingImage && (
@@ -1306,26 +1326,54 @@ export default function App() {
                     </AnimatePresence>
                   </div>
                   <div className="flex gap-2">
+                    {isSelectedDateToday && (
                     <button
                       onClick={() => handleAddItem(false)}
-                      disabled={!isSelectedDateToday}
-                      className={`flex-1 md:flex-none h-[50px] md:h-[60px] px-4 md:px-6 font-bold uppercase tracking-wider text-[11px] md:text-[13px] rounded-sm border-2 transition-all ${
-                        isSelectedDateToday
-                          ? 'bg-ink text-white border-ink active:scale-95'
-                          : 'bg-neutral-100 text-neutral-300 border-neutral-200 cursor-not-allowed'
-                      }`}
-                      title={isSelectedDateToday ? t.titles.addNow : t.titles.addNowDisabled}
+                      className="flex-1 md:flex-none h-[50px] md:h-[60px] px-4 md:px-6 bg-ink text-white border-ink font-bold uppercase tracking-wider text-[11px] md:text-[13px] rounded-sm border-2 transition-all active:scale-95"
+                      title={t.titles.addNow}
                     >
                       {t.ui.now}
                     </button>
+                    )}
                     <button
-                      onClick={() => handleAddItem(true)}
+                      onClick={openScheduling}
+                      aria-expanded={isScheduling}
+                      aria-controls="schedule-time-panel"
                       className="flex-1 md:flex-none h-[50px] md:h-[60px] px-4 md:px-6 bg-white text-ink font-bold uppercase tracking-wider text-[11px] md:text-[13px] rounded-sm transition-all active:scale-95 border-2 border-ink hover:bg-neutral-50"
                     >
                       {t.ui.schedule}
                     </button>
                   </div>
                 </div>
+                {isScheduling && (
+                  <form
+                    id="schedule-time-panel"
+                    onSubmit={(event) => { event.preventDefault(); handleAddItem(true); }}
+                    className="border-2 border-ink rounded-sm bg-neutral-50 p-4 space-y-3"
+                  >
+                    <p className="text-sm font-bold uppercase">
+                      {format(selectedDate, 'eeee, dd/MM/yyyy', { locale: dateLocale })}
+                    </p>
+                    <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+                      <label className="flex flex-col gap-1 sm:flex-1 text-sm font-bold">
+                        {t.scheduling.time}
+                        <input type="time" required value={selectedTime}
+                          onChange={(event) => setSelectedTime(event.target.value)}
+                          className="w-full min-h-[48px] border-2 border-border bg-white p-3 text-base rounded-sm outline-none focus:border-ink" />
+                      </label>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setIsScheduling(false)}
+                          className="min-h-[48px] px-3 border-2 border-ink bg-white rounded-sm text-sm font-bold">
+                          {t.scheduling.cancel}
+                        </button>
+                        <button type="submit" disabled={!inputText.trim() || !selectedTime}
+                          className="min-h-[48px] px-3 border-2 border-ink bg-ink text-white rounded-sm text-sm font-bold disabled:opacity-40">
+                          {t.scheduling.confirm}
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -1403,16 +1451,6 @@ export default function App() {
                   exit={{ opacity: 0, x: 20 }}
                   className="flex items-center gap-3 md:gap-4 overflow-x-auto no-scrollbar"
                 >
-                  <div className="flex items-center gap-2 bg-neutral-50 p-1.5 px-3 border border-border rounded-sm">
-                    <Clock size={12} className="text-neutral-400" />
-                    <input 
-                      type="time" 
-                      value={selectedTime}
-                      onChange={(e) => setSelectedTime(e.target.value)}
-                      className="bg-transparent text-[11px] font-black border-none focus:ring-0 cursor-pointer p-0 h-auto"
-                    />
-                  </div>
-                  
                   <div className="flex items-center gap-2 bg-neutral-50 p-1.5 px-3 border border-border rounded-sm whitespace-nowrap">
                     <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">{t.ui.repeat}</span>
                     <select 
