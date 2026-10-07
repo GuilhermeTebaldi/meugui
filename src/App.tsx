@@ -881,7 +881,7 @@ export default function App() {
       const matchesDate = checkItemVisibility(item, selectedDate);
       const matchesCategory = filterCategory === 'Tudo' || item.category === filterCategory;
       return matchesDate && matchesCategory;
-    }).sort((a, b) => b.timestamp - a.timestamp);
+    }).sort((a, b) => a.timestamp - b.timestamp);
   }, [items, selectedDate, filterCategory]);
 
   const selectedDateKey = useMemo(
