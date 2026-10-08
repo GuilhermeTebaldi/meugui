@@ -45,6 +45,9 @@ export function weatherKind(code: number): 'sereno' | 'nuvoloso' | 'pioggia' {
   if ([51,53,55,56,57,61,63,65,66,67,80,81,82,95,96,99].includes(code)) return 'pioggia';
   return 'nuvoloso';
 }
+export function getRecordedWeather(day: string): Weather | undefined {
+  return read().days[day];
+}
 export async function loadWeather(day: string, chosen?: Location): Promise<Weather> {
   const store = read(), existing = store.days[day];
   let current: Location | undefined;

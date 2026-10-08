@@ -1,6 +1,6 @@
 import { PDFDocument, PDFFont, StandardFonts } from 'pdf-lib';
 import { format, isValid } from 'date-fns';
-import { descriptionBaseline, isValidReportConfig, loadReportConfig, ReportConfig, TEMPLATE_URL } from './reportPdfConfig';
+import { descriptionBaseline, isValidReportConfig, loadReportConfig, ReportConfig, REPORT_WEATHER_FIELD, TEMPLATE_URL } from './reportPdfConfig';
 
 export const TEST_REPORT_DATE = new Date(2026, 8, 24);
 export const TEST_REPORT_TEXTS = Array.from({ length: 13 }, (_, i) => `Testo di prova linea ${String(i + 1).padStart(2, '0')}`);
@@ -81,7 +81,7 @@ export function layoutReportTexts(texts: readonly string[], font: PDFFont, confi
 
 export async function generateReportPdf(
   texts: readonly string[], selectedDate: Date, config: ReportConfig = loadReportConfig(),
-  templateBytes?: Uint8Array,
+  templateBytes?: Uint8Array, weatherText?: string,
 ): Promise<Uint8Array> {
   if (!texts.some(text => text.trim())) throw new ReportPdfError('empty');
   if (!isValid(selectedDate)) throw new ReportPdfError('invalid');
@@ -100,6 +100,7 @@ export async function generateReportPdf(
     const page = pages[start / config.description.rowsPerPage];
     output.addPage(page);
     page.drawText(dateText, { x: config.date.x, y: config.date.y, size: config.date.fontSize, font });
+    if (weatherText) page.drawText(weatherText, { ...REPORT_WEATHER_FIELD, size: REPORT_WEATHER_FIELD.fontSize, font });
     lines.slice(start, start + config.description.rowsPerPage).forEach((line, row) => {
       if (line.text) page.drawText(line.text, { x: config.description.x, y: descriptionBaseline(config, row), size: line.fontSize, font });
     });
@@ -120,6 +121,6 @@ export function downloadReportBytes(bytes: Uint8Array, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-export async function downloadDailyReport(texts: readonly string[], date: Date, config?: ReportConfig): Promise<void> {
-  downloadReportBytes(await generateReportPdf(texts, date, config), `rapporto-${format(date, 'dd-MM-yyyy')}.pdf`);
+export async function downloadDailyReport(texts: readonly string[], date: Date, config?: ReportConfig, weatherText?: string): Promise<void> {
+  downloadReportBytes(await generateReportPdf(texts, date, config, undefined, weatherText), `rapporto-${format(date, 'dd-MM-yyyy')}.pdf`);
 }

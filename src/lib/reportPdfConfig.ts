@@ -17,6 +17,10 @@ export const REPORT_CONFIG_KEY = 'rapport_pdf_calibration_v1';
 export const TEMPLATE_URL = `${import.meta.env?.BASE_URL || '/'}templates/rapporto-ore-manutenzione.pdf`;
 export const TEMPLATE_SIZE = { width: 595.2756, height: 841.8898 };
 
+// Original template: weather row spans top-origin y=680..706pt;
+// text starts after the printed label, with its baseline at y=694pt.
+export const REPORT_WEATHER_FIELD = Object.freeze({ x: 180, y: TEMPLATE_SIZE.height - 694, fontSize: 9 });
+
 // Measured on the supplied A4 PDF: description rules at x=43.375/379.25,
 // top-origin y=219.5..427, first row bottom=236.125; 6pt horizontal inset.
 // firstLineY is the bottom of row 1; baselineOffset moves text upward in PDF points.

@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { getRecordedWeather, loadWeather, weatherKind } from './lib/weather';
 import { 
   Plus, 
   Calendar as CalendarIcon, 
@@ -865,8 +866,11 @@ export default function App() {
     if (isGeneratingReport || !reportTexts.length) return;
     setIsGeneratingReport(true);
     try {
+      const reportDayKey = format(selectedDate, 'yyyy-MM-dd');
+      const weather = await loadWeather(reportDayKey).catch(() => getRecordedWeather(reportDayKey));
+      if (!weather) { alert(t.weather.error); return; }
       const { downloadDailyReport } = await import('./lib/reportPdf');
-      await downloadDailyReport(reportTexts, selectedDate);
+      await downloadDailyReport(reportTexts, selectedDate, undefined, t.weather[weatherKind(weather.code)]);
     } catch (error) {
       const failure = error as { code?: string; detail?: string };
       alert(failure.code === 'unsupported' ? `${t.pdf.unsupported} ${failure.detail}`
