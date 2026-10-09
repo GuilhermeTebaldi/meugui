@@ -13,30 +13,30 @@ export interface ReportConfig {
   date: { x: number; y: number; fontSize: number; width: number };
 }
 
-export const REPORT_CONFIG_KEY = 'rapport_pdf_calibration_v1';
+export const REPORT_CONFIG_KEY = 'rapport_pdf_calibration_idrica_v2';
 export const TEMPLATE_URL = `${import.meta.env?.BASE_URL || '/'}templates/rapporto-ore-manutenzione.pdf`;
-export const TEMPLATE_SIZE = { width: 595.2756, height: 841.8898 };
+export const TEMPLATE_SIZE = { width: 595.303937, height: 841.889764 };
 
-// Original template: weather row spans top-origin y=680..706pt;
-// text starts after the printed label, with its baseline at y=694pt.
-export const REPORT_WEATHER_FIELD = Object.freeze({ x: 180, y: TEMPLATE_SIZE.height - 694, fontSize: 9 });
+// IDRICA original: weather row spans top-origin y=643.349..663.279pt.
+export const REPORT_WEATHER_FIELD = Object.freeze({ x: 200, y: TEMPLATE_SIZE.height - 658, fontSize: 9 });
 
-// Measured on the supplied A4 PDF: description rules at x=43.375/379.25,
-// top-origin y=219.5..427, first row bottom=236.125; 6pt horizontal inset.
+// First page of the original XLS: description rules at x=63.323/374.363,
+// top-origin y=189.567..402.242, first row bottom=203.745; 6pt inset.
+// Preserve the existing 13-row pagination, leaving the last two printed rows free.
 // firstLineY is the bottom of row 1; baselineOffset moves text upward in PDF points.
 export const DEFAULT_REPORT_CONFIG: ReportConfig = Object.freeze({
   version: 1,
   description: Object.freeze({
-    x: 49.375,
-    firstLineY: 605.7648,
-    width: 323.875,
-    rowHeight: (427 - 219.5) / 13,
+    x: 69.323,
+    firstLineY: TEMPLATE_SIZE.height - 203.745,
+    width: 299.04,
+    rowHeight: 14.1783,
     rowsPerPage: 13,
     fontSize: 9,
     minFontSize: 6.5,
     baselineOffset: 4,
   }),
-  date: Object.freeze({ x: 450, y: 713.8898, fontSize: 9, width: 64 }),
+  date: Object.freeze({ x: 440, y: TEMPLATE_SIZE.height - 104.5, fontSize: 9, width: 64 }),
 });
 
 export function descriptionBaseline(config: ReportConfig, row: number): number {
